@@ -125,6 +125,21 @@ function countDone(habit, value) {
   return habit.subitems.filter((s) => value[s.id] === true).length;
 }
 
+// Ticks on its own 15s timer so the rest of the tree (habit cards, plants)
+// doesn't re-render every tick.
+function Clock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 15000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <p style={{ color: BASE.ink, opacity: 0.65, fontFamily: "'IBM Plex Mono', monospace" }} className="text-xs uppercase tracking-widest mb-1 capitalize">
+      {now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+    </p>
+  );
+}
+
 // Decorative mountain illustration for the header — layered pastel peaks.
 function MountainArt() {
   return (
@@ -202,6 +217,7 @@ function Plant({ colors, total, height = 176, width = 140, big = false }) {
         transform={`rotate(${side * 40} ${cx} ${y})`}
         fill={colors[i]}
         opacity={0.92}
+        style={{ transition: "cy 0.35s ease, opacity 0.35s ease" }}
       />
     );
   }
@@ -215,10 +231,11 @@ function Plant({ colors, total, height = 176, width = 140, big = false }) {
         stroke={BASE.stem}
         strokeWidth={big ? 4 : 3}
         strokeLinecap="round"
+        style={{ transition: "y2 0.35s ease" }}
       />
       {leaves}
       {total > 0 && (
-        <circle cx={width / 2} cy={height - 14 - stemHeight} r={big ? 6 : 4} fill={n === total ? PALETTE[3].deep : BASE.stem} />
+        <circle cx={width / 2} cy={height - 14 - stemHeight} r={big ? 6 : 4} fill={n === total ? PALETTE[3].deep : BASE.stem} style={{ transition: "cy 0.35s ease, fill 0.35s ease" }} />
       )}
     </svg>
   );
@@ -231,12 +248,6 @@ export default function HabitTracker() {
   const [showAdd, setShowAdd] = useState(false);
   const [newHabit, setNewHabit] = useState({ name: "", type: "check", target: 1, unit: "", icon: "book" });
   const [error, setError] = useState("");
-  const [now, setNow] = useState(new Date());
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 15000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     if (!error) return;
@@ -371,7 +382,6 @@ export default function HabitTracker() {
   }
 
   const dateLabel = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-  const timeLabel = now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   const [feteName, feteTitle] = feteDuJour(new Date());
   const feteLabel = feteTitle ? `Fête : ${feteTitle} ${feteName}` : feteName;
 
@@ -381,9 +391,7 @@ export default function HabitTracker() {
         <div className="relative overflow-hidden rounded-b-[28px] mb-6">
           <MountainArt />
           <div className="absolute inset-0 flex flex-col justify-end px-5 pb-4">
-            <p style={{ color: BASE.ink, opacity: 0.65, fontFamily: "'IBM Plex Mono', monospace" }} className="text-xs uppercase tracking-widest mb-1 capitalize">
-              {timeLabel}
-            </p>
+            <Clock />
             <h1 style={{ fontFamily: "'Fraunces', serif" }} className="text-3xl font-semibold capitalize">{dateLabel}</h1>
             <p style={{ color: BASE.ink, opacity: 0.7 }} className="text-xs mt-1">{feteLabel}</p>
           </div>
@@ -450,18 +458,18 @@ export default function HabitTracker() {
                       <button
                         onClick={() => toggleCheck(h)}
                         aria-label={done ? "Marquer comme non fait" : "Marquer comme fait"}
-                        className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center"
+                        className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
                         style={{ background: done ? "rgba(255,255,255,0.9)" : "transparent", border: `2px solid ${done ? "rgba(255,255,255,0.9)" : BASE.stem}` }}
                       >
-                        {done && <Check size={16} color={c.deep} />}
+                        {done && <Check size={16} color={c.deep} className="pop-in" />}
                       </button>
                     )}
                     {h.type === "count" && (
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => bump(h, -h.step)} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${done ? "rgba(255,255,255,0.5)" : BASE.stem}` }} aria-label="Retirer">
+                        <button onClick={() => bump(h, -h.step)} className="w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform" style={{ border: `1px solid ${done ? "rgba(255,255,255,0.5)" : BASE.stem}` }} aria-label="Retirer">
                           <Minus size={13} />
                         </button>
-                        <button onClick={() => bump(h, h.step)} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ border: `1px solid ${done ? "rgba(255,255,255,0.5)" : BASE.stem}`, background: done ? "rgba(255,255,255,0.2)" : "transparent" }} aria-label="Ajouter">
+                        <button onClick={() => bump(h, h.step)} className="w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform" style={{ border: `1px solid ${done ? "rgba(255,255,255,0.5)" : BASE.stem}`, background: done ? "rgba(255,255,255,0.2)" : "transparent" }} aria-label="Ajouter">
                           <Plus size={13} />
                         </button>
                       </div>
@@ -469,7 +477,7 @@ export default function HabitTracker() {
 
                     <button
                       onClick={() => removeHabit(h.id, h.name)}
-                      className="shrink-0 opacity-45 active:opacity-100 transition-opacity p-1"
+                      className="shrink-0 opacity-45 active:opacity-100 active:scale-90 transition-all p-1"
                       aria-label="Supprimer cette habitude"
                       style={{ color: fg }}
                     >
@@ -485,7 +493,7 @@ export default function HabitTracker() {
                           <button
                             key={s.id}
                             onClick={() => toggleSub(h, s.id)}
-                            className="flex-1 min-w-[70px] rounded-xl py-2 text-xs font-medium flex flex-col items-center gap-1"
+                            className="flex-1 min-w-[70px] rounded-xl py-2 text-xs font-medium flex flex-col items-center gap-1 active:scale-95 transition-transform"
                             style={{
                               background: subDone ? (done ? "rgba(255,255,255,0.22)" : c.deep) : "rgba(255,255,255,0.5)",
                               color: subDone ? (done ? BASE.paper : BASE.paper) : BASE.ink,
@@ -493,7 +501,7 @@ export default function HabitTracker() {
                             }}
                           >
                             <span className="w-4 h-4 rounded-full flex items-center justify-center" style={{ background: subDone ? "rgba(255,255,255,0.3)" : "transparent", border: subDone ? "none" : `1.5px solid ${BASE.stem}` }}>
-                              {subDone && <Check size={10} />}
+                              {subDone && <Check size={10} className="pop-in" />}
                             </span>
                             {s.label}
                           </button>
@@ -529,7 +537,7 @@ export default function HabitTracker() {
           {!showAdd ? (
             <button
               onClick={() => setShowAdd(true)}
-              className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 text-sm font-medium"
+              className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 text-sm font-medium active:scale-[0.98] transition-transform"
               style={{ border: `1.5px dashed ${BASE.stem}`, color: PALETTE[1].deep }}
             >
               <Plus size={16} /> Ajouter une habitude
@@ -599,7 +607,7 @@ export default function HabitTracker() {
                   );
                 })}
               </div>
-              <button onClick={addHabit} className="w-full rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-1.5" style={{ background: PALETTE[3].deep, color: BASE.paper }}>
+              <button onClick={addHabit} className="w-full rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform" style={{ background: PALETTE[3].deep, color: BASE.paper }}>
                 <Sparkles size={14} /> Ajouter
               </button>
             </div>

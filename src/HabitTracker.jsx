@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Droplet, BookOpen, Dumbbell, Footprints, UtensilsCrossed, Check, Plus, Trash2, Flame, X, Minus, Sparkles, Download, Upload, Shield } from "lucide-react";
+import { Droplet, BookOpen, Dumbbell, Footprints, UtensilsCrossed, Check, Plus, Trash2, Flame, X, Minus, Sparkles, Download, Upload, Shield, CalendarClock, RotateCcw } from "lucide-react";
 import { loadHabits, saveHabits as persistHabits, loadEntries, saveEntries as persistEntries, exportBackup, parseBackup, restoreBackup, getLastBackup } from "./storage";
 
 // Traditional French "fête du jour" calendar — [firstName, "Saint"/"Sainte"/""] per day, per month (Jan→Dec).
@@ -80,6 +80,10 @@ const QUOTES = [
   "Petit pas, vraie constance.",
 ];
 
+// The app reads and accepts French notation, so it should display it too:
+// 0,75 rather than 0.75, and 8 000 rather than 8000.
+function fmtNum(n) { return Number(n || 0).toLocaleString("fr-FR"); }
+
 function pad(n) { return String(n).padStart(2, "0"); }
 function toISO(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function lastNDates(n) {
@@ -96,7 +100,8 @@ function dayOfYear(d) {
   const start = new Date(d.getFullYear(), 0, 0);
   return Math.floor((d - start) / 86400000);
 }
-const DOW = ["D", "L", "M", "M", "J", "V", "S"];
+// Two letters, because single initials give mardi and mercredi the same "M".
+const DOW = ["Di", "Lu", "Ma", "Me", "Je", "Ve", "Sa"];
 
 // Today's date has to live in state: without it, a session left open overnight
 // keeps writing to the previous day. Re-checked at midnight and again whenever
@@ -261,6 +266,41 @@ function Plant({ colors, total, height = 176, width = 140, big = false }) {
   );
 }
 
+// Typing a value beats tapping "+" eight times to reach 8000 steps. The tick
+// button is not optional: iOS shows a decimal keypad with no return key, so
+// without it the only way out would be tapping elsewhere on the page. Blur and
+// the button both commit the same draft, so whichever lands first is correct.
+function CountEditor({ habit, value, accent, onCommit }) {
+  // Seeded with a comma so editing matches what the card shows and what a
+  // French keyboard produces. setCount converts it back on the way out.
+  const [draft, setDraft] = useState(String(value ?? 0).replace(".", ","));
+  return (
+    <div className="flex items-center gap-2 mt-1">
+      <input
+        autoFocus
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onBlur={() => onCommit(draft)}
+        onKeyDown={(e) => { if (e.key === "Enter") onCommit(draft); }}
+        aria-label={`Valeur pour ${habit.name}`}
+        className="w-20 rounded-lg px-2 py-1 text-sm outline-none"
+        style={{ background: BASE.paper, color: BASE.ink, border: `1px solid ${accent}` }}
+      />
+      <button
+        onClick={() => onCommit(draft)}
+        aria-label="Valider la valeur"
+        className="w-11 h-11 -my-2 rounded-full flex items-center justify-center shrink-0 active:scale-90 transition-transform"
+        style={{ background: accent, color: BASE.paper }}
+      >
+        <Check size={16} />
+      </button>
+    </div>
+  );
+}
+
 function formatDateTime(iso) {
   if (!iso) return null;
   const d = new Date(iso);
@@ -409,12 +449,23 @@ export default function HabitTracker() {
   const [newHabit, setNewHabit] = useState({ name: "", type: "check", target: 1, unit: "", icon: "book" });
   const [error, setError] = useState("");
   const [showData, setShowData] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editingCount, setEditingCount] = useState(null);
+  // null means "today", so the view follows the date across midnight on its own.
+  const [viewDate, setViewDate] = useState(null);
+  const [undo, setUndo] = useState(null);
 
   useEffect(() => {
     if (!error) return;
     const id = setTimeout(() => setError(""), 4000);
     return () => clearTimeout(id);
   }, [error]);
+
+  useEffect(() => {
+    if (!undo) return;
+    const id = setTimeout(() => setUndo(null), 7000);
+    return () => clearTimeout(id);
+  }, [undo]);
 
   const today = useToday();
   const weekDates = lastNDates(7);
@@ -478,24 +529,32 @@ export default function HabitTracker() {
     );
   }
 
-  const todayValues = entries[today] || {};
-  const completedIdx = habits.map((h, i) => (isDone(h, todayValues[h.id]) ? i : -1)).filter((i) => i >= 0);
+  const activeDate = viewDate || today;
+  const isViewingToday = activeDate === today;
+  const activeValues = entries[activeDate] || {};
+  const completedIdx = habits.map((h, i) => (isDone(h, activeValues[h.id]) ? i : -1)).filter((i) => i >= 0);
   const completedToday = completedIdx.length;
   const allDone = habits.length > 0 && completedToday === habits.length;
 
   function setValue(habitId, value) {
-    const next = { ...entries, [today]: { ...(entries[today] || {}), [habitId]: value } };
+    const next = { ...entries, [activeDate]: { ...(entries[activeDate] || {}), [habitId]: value } };
     saveEntries(next);
   }
-  function toggleCheck(h) { setValue(h.id, !isDone(h, todayValues[h.id])); }
+  function toggleCheck(h) { setValue(h.id, !isDone(h, activeValues[h.id])); }
   function toggleSub(h, subId) {
-    const current = todayValues[h.id] || {};
+    const current = activeValues[h.id] || {};
     setValue(h.id, { ...current, [subId]: !current[subId] });
   }
   function bump(h, delta) {
-    const current = Number(todayValues[h.id] || 0);
+    const current = Number(activeValues[h.id] || 0);
     const next = Math.max(0, Math.round((current + delta) * 100) / 100);
     setValue(h.id, next);
+  }
+  // French keyboards produce a comma for the decimal separator.
+  function setCount(h, raw) {
+    const parsed = parseFloat(String(raw).replace(",", "."));
+    setValue(h.id, isNaN(parsed) ? 0 : Math.max(0, Math.round(parsed * 100) / 100));
+    setEditingCount(null);
   }
   function streakFor(h) {
     let count = 0;
@@ -509,9 +568,24 @@ export default function HabitTracker() {
     }
     return count;
   }
-  function removeHabit(id, name) {
-    if (typeof window !== "undefined" && window.confirm && !window.confirm(`Supprimer « ${name} » ? L'historique de cette habitude sera perdu.`)) return;
-    saveHabits(habits.filter((h) => h.id !== id));
+  // Entries stay keyed by habit id and are never deleted, so putting the habit
+  // back at its original index restores its history and streak untouched.
+  function removeHabit(id) {
+    const index = habits.findIndex((h) => h.id === id);
+    if (index < 0) return;
+    const next = habits.filter((h) => h.id !== id);
+    setUndo({ habit: habits[index], index });
+    saveHabits(next);
+    // Nothing left to edit, and the toggle that would exit edit mode is hidden
+    // once the list is empty.
+    if (next.length === 0) setEditMode(false);
+  }
+  function undoRemove() {
+    if (!undo) return;
+    const next = [...habits];
+    next.splice(Math.min(undo.index, next.length), 0, undo.habit);
+    saveHabits(next);
+    setUndo(null);
   }
   function addHabit() {
     if (!newHabit.name.trim()) { setError("Donne un nom à cette habitude."); return; }
@@ -528,6 +602,7 @@ export default function HabitTracker() {
   const dateLabel = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   const [feteName, feteTitle] = feteDuJour(new Date());
   const feteLabel = feteTitle ? `Fête : ${feteTitle} ${feteName}` : feteName;
+  const activeDayLabel = new Date(activeDate + "T00:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 
   return (
     <div style={{ background: BASE.paper, color: BASE.ink, fontFamily: "'Inter', sans-serif" }} className="min-h-full w-full">
@@ -542,10 +617,28 @@ export default function HabitTracker() {
         </div>
 
         <div className="px-5">
+          {!isViewingToday && (
+            <div className="flex items-center gap-3 rounded-2xl p-3 mb-3" style={{ background: PALETTE[2].tint, border: `1px solid ${PALETTE[2].soft}` }}>
+              <CalendarClock size={18} color={PALETTE[2].deep} className="shrink-0" />
+              <p className="text-xs flex-1 leading-snug">
+                Tu complètes <span className="font-semibold capitalize">{activeDayLabel}</span>
+              </p>
+              <button
+                onClick={() => setViewDate(null)}
+                className="shrink-0 rounded-xl px-3 text-xs font-medium active:scale-95 transition-transform"
+                style={{ background: PALETTE[2].deep, color: BASE.paper, minHeight: 44 }}
+              >
+                Aujourd'hui
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center justify-between rounded-2xl p-4 mb-3" style={{ background: BASE.paperDeep }}>
             <div>
               <p className="text-2xl font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>{completedToday}/{habits.length}</p>
-              <p className="text-sm" style={{ color: BASE.muted }}>habitudes tenues aujourd'hui</p>
+              <p className="text-sm" style={{ color: BASE.muted }}>
+                {isViewingToday ? "habitudes tenues aujourd'hui" : "habitudes tenues ce jour-là"}
+              </p>
             </div>
             <Plant colors={completedIdx.map((i) => colorFor(i).deep)} total={habits.length} big />
           </div>
@@ -558,21 +651,37 @@ export default function HabitTracker() {
           )}
           {!allDone && <div className="mb-4" />}
 
+          {habits.length > 0 && (
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs uppercase tracking-widest" style={{ color: BASE.muted, fontFamily: "'IBM Plex Mono', monospace" }}>
+                Habitudes
+              </p>
+              <button
+                onClick={() => { setEditMode((v) => !v); setEditingCount(null); }}
+                className="text-xs font-medium px-2 -mr-2 active:opacity-60 transition-opacity"
+                style={{ color: editMode ? PALETTE[1].deep : BASE.muted, minHeight: 44 }}
+              >
+                {editMode ? "Terminé" : "Modifier"}
+              </button>
+            </div>
+          )}
+
           <div className="space-y-3 mb-7">
             {habits.map((h, i) => {
               const Icon = ICONS[h.icon] || Check;
-              const done = isDone(h, todayValues[h.id]);
-              const nDone = countDone(h, todayValues[h.id]);
+              const done = isDone(h, activeValues[h.id]);
+              const nDone = countDone(h, activeValues[h.id]);
               const streak = streakFor(h);
               const c = colorFor(i);
               const isMulti = h.type === "multi";
               // For multi-period habits, the card tints gradually as periods get checked off.
               const bg = done ? c.deep : isMulti && nDone > 0 ? c.tint : BASE.paperDeep;
               const fg = done ? BASE.paper : BASE.ink;
+              const subtle = done ? "rgba(251,247,241,0.8)" : BASE.muted;
               return (
                 <div
                   key={h.id}
-                  className="rounded-2xl p-4 group"
+                  className="rounded-2xl p-4"
                   style={{ background: bg, color: fg, transition: "background 0.25s ease" }}
                 >
                   <div className="flex items-center gap-3">
@@ -582,12 +691,28 @@ export default function HabitTracker() {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm leading-tight truncate">{h.name}</p>
                       {h.type === "count" && (
-                        <p className="text-xs mt-0.5" style={{ color: done ? "rgba(251,247,241,0.8)" : BASE.muted }}>
-                          {todayValues[h.id] || 0} / {h.target} {h.unit}
-                        </p>
+                        editingCount === h.id ? (
+                          <CountEditor
+                            habit={h}
+                            value={activeValues[h.id] || 0}
+                            accent={c.deep}
+                            onCommit={(raw) => setCount(h, raw)}
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setEditingCount(h.id)}
+                            disabled={editMode}
+                            // Padding pulled back by an equal negative margin: a 44px
+                            // tap target that takes no extra room in the card.
+                            className="text-xs mt-0.5 block py-3.5 -my-3.5 active:opacity-60 transition-opacity"
+                            style={{ color: subtle, textDecoration: "underline dotted", textUnderlineOffset: 3 }}
+                          >
+                            {fmtNum(activeValues[h.id])} / {fmtNum(h.target)} {h.unit}
+                          </button>
+                        )
                       )}
                       {isMulti && (
-                        <p className="text-xs mt-0.5" style={{ color: done ? "rgba(251,247,241,0.8)" : BASE.muted }}>
+                        <p className="text-xs mt-0.5" style={{ color: subtle }}>
                           {nDone} / {h.subitems.length} périodes tenues
                         </p>
                       )}
@@ -598,41 +723,45 @@ export default function HabitTracker() {
                       )}
                     </div>
 
-                    {h.type === "check" && (
+                    {editMode ? (
                       <button
-                        onClick={() => toggleCheck(h)}
-                        aria-label={done ? "Marquer comme non fait" : "Marquer comme fait"}
-                        className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                        style={{ background: done ? "rgba(255,255,255,0.9)" : "transparent", border: `2px solid ${done ? "rgba(255,255,255,0.9)" : BASE.stem}` }}
+                        onClick={() => removeHabit(h.id)}
+                        aria-label={`Supprimer ${h.name}`}
+                        className="shrink-0 w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                        style={{ background: "#B23A3A", color: "#FFFFFF" }}
                       >
-                        {done && <Check size={16} color={c.deep} className="pop-in" />}
+                        <Trash2 size={18} />
                       </button>
+                    ) : (
+                      <>
+                        {h.type === "check" && (
+                          <button
+                            onClick={() => toggleCheck(h)}
+                            aria-label={done ? "Marquer comme non fait" : "Marquer comme fait"}
+                            className="shrink-0 w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                            style={{ background: done ? "rgba(255,255,255,0.9)" : "transparent", border: `2px solid ${done ? "rgba(255,255,255,0.9)" : BASE.stem}` }}
+                          >
+                            {done && <Check size={20} color={c.deep} className="pop-in" />}
+                          </button>
+                        )}
+                        {h.type === "count" && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button onClick={() => bump(h, -h.step)} className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform" style={{ border: `1px solid ${done ? "rgba(255,255,255,0.5)" : BASE.stem}` }} aria-label="Retirer">
+                              <Minus size={16} />
+                            </button>
+                            <button onClick={() => bump(h, h.step)} className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform" style={{ border: `1px solid ${done ? "rgba(255,255,255,0.5)" : BASE.stem}`, background: done ? "rgba(255,255,255,0.2)" : "transparent" }} aria-label="Ajouter">
+                              <Plus size={16} />
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
-                    {h.type === "count" && (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => bump(h, -h.step)} className="w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform" style={{ border: `1px solid ${done ? "rgba(255,255,255,0.5)" : BASE.stem}` }} aria-label="Retirer">
-                          <Minus size={13} />
-                        </button>
-                        <button onClick={() => bump(h, h.step)} className="w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform" style={{ border: `1px solid ${done ? "rgba(255,255,255,0.5)" : BASE.stem}`, background: done ? "rgba(255,255,255,0.2)" : "transparent" }} aria-label="Ajouter">
-                          <Plus size={13} />
-                        </button>
-                      </div>
-                    )}
-
-                    <button
-                      onClick={() => removeHabit(h.id, h.name)}
-                      className="shrink-0 opacity-45 active:opacity-100 active:scale-90 transition-all p-1"
-                      aria-label="Supprimer cette habitude"
-                      style={{ color: fg }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
 
-                  {isMulti && (
+                  {isMulti && !editMode && (
                     <div className="flex gap-1.5 mt-3 flex-wrap">
                       {h.subitems.map((s) => {
-                        const subDone = !!(todayValues[h.id] || {})[s.id];
+                        const subDone = !!(activeValues[h.id] || {})[s.id];
                         return (
                           <button
                             key={s.id}
@@ -659,18 +788,30 @@ export default function HabitTracker() {
           </div>
 
           <div className="mb-8">
-            <p className="text-xs uppercase tracking-widest mb-2" style={{ color: BASE.muted, fontFamily: "'IBM Plex Mono', monospace" }}>Cette semaine</p>
-            <div className="flex justify-between items-end rounded-2xl p-4" style={{ background: BASE.paperDeep }}>
+            <div className="flex items-baseline justify-between mb-2 gap-2">
+              <p className="text-xs uppercase tracking-widest shrink-0" style={{ color: BASE.muted, fontFamily: "'IBM Plex Mono', monospace" }}>Cette semaine</p>
+              <p className="text-xs text-right" style={{ color: BASE.muted }}>touche un jour pour le compléter</p>
+            </div>
+            <div className="flex justify-between items-end rounded-2xl p-3" style={{ background: BASE.paperDeep }}>
               {weekDates.map((d) => {
                 const vals = entries[d] || {};
                 const idxDone = habits.map((h, i) => (isDone(h, vals[h.id]) ? i : -1)).filter((i) => i >= 0);
-                const dayIdx = new Date(d + "T00:00:00").getDay();
-                const isToday = d === today;
+                const dayDate = new Date(d + "T00:00:00");
+                const dayIdx = dayDate.getDay();
+                const isThisToday = d === today;
+                const isSelected = d === activeDate;
                 return (
-                  <div key={d} className="flex flex-col items-center gap-1">
+                  <button
+                    key={d}
+                    onClick={() => setViewDate(isThisToday ? null : d)}
+                    aria-label={`Compléter ${dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}`}
+                    aria-pressed={isSelected}
+                    className="flex-1 flex flex-col items-center gap-1 rounded-xl py-1 active:scale-95 transition-transform"
+                    style={{ background: isSelected ? BASE.paper : "transparent" }}
+                  >
                     <Plant colors={idxDone.map((i) => colorFor(i).deep)} total={habits.length} height={72} width={30} />
-                    <span className="text-xs" style={{ color: isToday ? PALETTE[1].deep : BASE.muted, fontWeight: isToday ? 600 : 400 }}>{DOW[dayIdx]}</span>
-                  </div>
+                    <span className="text-xs" style={{ color: isThisToday ? PALETTE[1].deep : BASE.muted, fontWeight: isSelected ? 600 : 400 }}>{DOW[dayIdx]}</span>
+                  </button>
                 );
               })}
             </div>
@@ -766,6 +907,21 @@ export default function HabitTracker() {
           </button>
         </div>
       </div>
+
+      {undo && (
+        <div className="fixed left-0 right-0 z-40 flex justify-center px-5" style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
+          <div className="w-full max-w-md rounded-2xl px-4 py-2 flex items-center gap-3" style={{ background: BASE.ink, color: BASE.paper, boxShadow: "0 6px 24px rgba(58,52,44,0.28)" }}>
+            <p className="text-sm flex-1 truncate">« {undo.habit.name} » supprimée</p>
+            <button
+              onClick={undoRemove}
+              className="shrink-0 flex items-center gap-1.5 text-sm font-medium px-3 rounded-xl active:scale-95 transition-transform"
+              style={{ background: "rgba(255,255,255,0.16)", minHeight: 44 }}
+            >
+              <RotateCcw size={14} /> Annuler
+            </button>
+          </div>
+        </div>
+      )}
 
       {showData && (
         <DataSheet

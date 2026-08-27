@@ -40,6 +40,38 @@ export function weekDates(iso) {
   return Array.from({ length: 7 }, (_, i) => shiftDays(start, i));
 }
 
+export function startOfMonth(iso) {
+  const d = fromISO(iso);
+  d.setDate(1);
+  return toISO(d);
+}
+
+export function addMonths(iso, delta) {
+  const d = fromISO(iso);
+  // Set the day first: adding a month to the 31st would otherwise overflow.
+  d.setDate(1);
+  d.setMonth(d.getMonth() + delta);
+  return toISO(d);
+}
+
+export function monthLabel(iso) {
+  return fromISO(iso).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+}
+
+// Flat list of cells for a Monday-first calendar month, padded with nulls at
+// both ends so it tiles cleanly into seven columns.
+export function monthCells(iso) {
+  const first = fromISO(startOfMonth(iso));
+  const year = first.getFullYear();
+  const month = first.getMonth();
+  const lead = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = new Array(lead).fill(null);
+  for (let day = 1; day <= daysInMonth; day++) cells.push(toISO(new Date(year, month, day)));
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
 export function dayOfYear(d) {
   const start = new Date(d.getFullYear(), 0, 0);
   return Math.floor((d - start) / 86400000);

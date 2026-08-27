@@ -1,3 +1,5 @@
+import { shareOrDownload } from "./share";
+
 // All persistence goes through this module. Every function is async even
 // though localStorage is synchronous, so that swapping the backend for a
 // synced one (Supabase) later stays contained to this file — callers already
@@ -95,35 +97,9 @@ export async function buildBackup() {
 
 // Returns "shared" | "downloaded" | "cancelled".
 export async function exportBackup() {
-  const json = await buildBackup();
-  const filename = backupFilename();
-  const type = "application/json";
-
-  // An installed PWA on iOS can't complete an <a download>; the share sheet is
-  // the reliable path there (Save to Files, Mail, AirDrop…).
-  try {
-    const file = new File([json], filename, { type });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: filename });
-      await markBackedUp();
-      return "shared";
-    }
-  } catch (err) {
-    // The user dismissing the share sheet is not an error worth reporting.
-    if (err && err.name === "AbortError") return "cancelled";
-  }
-
-  const url = URL.createObjectURL(new Blob([json], { type }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  // Revoking immediately can cancel the download in some browsers.
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
-  await markBackedUp();
-  return "downloaded";
+  const result = await shareOrDownload(await buildBackup(), backupFilename(), "application/json");
+  if (result !== "cancelled") await markBackedUp();
+  return result;
 }
 
 // Validates a backup file without writing anything, so the UI can show what

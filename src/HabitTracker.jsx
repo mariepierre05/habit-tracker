@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Check, Plus, Trash2, Flame, X, Minus, Download, Upload, Shield, CalendarClock, RotateCcw, Pencil, Moon } from "lucide-react";
+import { Check, Plus, Trash2, Flame, X, Minus, Download, Upload, Shield, CalendarClock, RotateCcw, Pencil, Moon, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Bell } from "lucide-react";
 import { loadHabits, saveHabits as persistHabits, loadEntries, saveEntries as persistEntries, exportBackup, parseBackup, restoreBackup, getLastBackup } from "./storage";
 import { BASE, PALETTE, colorFor, iconFor } from "./theme";
 import { DOW, toISO, lastNDates, dayOfYear, fromISO } from "./dates";
 import {
-  DEFAULT_HABITS, isDone, countDone, streakFor, fmtNum,
+  DEFAULT_HABITS, isDone, countDone, streakFor, fmtNum, nextColorIndex,
   isScheduled, isRequiredOn, countsTowardDay, freqLabel, freqKind,
   weekDoneCount, weekTarget, FREQ_PER_WEEK,
 } from "./habits";
 import HabitForm from "./HabitForm";
+import MonthGrid from "./MonthGrid";
+import ReminderSheet from "./ReminderSheet";
 
 // Traditional French "fête du jour" calendar — [firstName, "Saint"/"Sainte"/""] per day, per month (Jan→Dec).
 const FETE_DATA = [
@@ -39,6 +41,12 @@ const QUOTES = [
   "Ce que tu répètes, tu deviens.",
   "Petit pas, vraie constance.",
 ];
+
+// Falls back to the list position for any habit saved before colours were
+// pinned, which the load effect then persists.
+function colorOf(habit, index) {
+  return colorFor(Number.isInteger(habit.colorIndex) ? habit.colorIndex : index);
+}
 
 // Today's date has to live in state: without it, a session left open overnight
 // keeps writing to the previous day. Re-checked at midnight and again whenever
@@ -371,11 +379,15 @@ export default function HabitTracker() {
   const [formFor, setFormFor] = useState(null);
   const [error, setError] = useState("");
   const [showData, setShowData] = useState(false);
+  const [showReminder, setShowReminder] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editingCount, setEditingCount] = useState(null);
   // null means "today", so the view follows the date across midnight on its own.
   const [viewDate, setViewDate] = useState(null);
   const [undo, setUndo] = useState(null);
+  // The weekly buds stay the default view; the month is opened on demand.
+  const [showMonth, setShowMonth] = useState(false);
+  const [monthCursor, setMonthCursor] = useState(null);
 
   useEffect(() => {
     if (!error) return;
@@ -411,6 +423,14 @@ export default function HabitTracker() {
         }
         return hb;
       });
+      // Pin each habit's colour to the position it already had, so existing
+      // cards keep the colours their owner is used to while reordering and
+      // deleting stop reshuffling everything below.
+      if (h.some((hb) => !Number.isInteger(hb.colorIndex))) {
+        h = h.map((hb, i) => (Number.isInteger(hb.colorIndex) ? hb : { ...hb, colorIndex: i % PALETTE.length }));
+        migrated = true;
+      }
+
       // Seeding on first run keeps storage the single source of truth, so a
       // backup taken before any edit still contains the habit list.
       if (firstRun || migrated) {
@@ -506,9 +526,20 @@ export default function HabitTracker() {
   // against it — the whole point of editing rather than delete-and-recreate.
   function saveHabit(habit) {
     const known = habits.some((h) => h.id === habit.id);
-    saveHabits(known ? habits.map((h) => (h.id === habit.id ? habit : h)) : [...habits, habit]);
+    if (known) {
+      saveHabits(habits.map((h) => (h.id === habit.id ? { ...habit, colorIndex: h.colorIndex } : h)));
+    } else {
+      saveHabits([...habits, { ...habit, colorIndex: nextColorIndex(habits, PALETTE.length) }]);
+    }
     setFormFor(null);
     setError("");
+  }
+  function moveHabit(index, delta) {
+    const target = index + delta;
+    if (target < 0 || target >= habits.length) return;
+    const next = [...habits];
+    [next[index], next[target]] = [next[target], next[index]];
+    saveHabits(next);
   }
 
   const dateLabel = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
@@ -552,7 +583,7 @@ export default function HabitTracker() {
                 {isViewingToday ? "habitudes tenues aujourd'hui" : "habitudes tenues ce jour-là"}
               </p>
             </div>
-            <Plant colors={completedIdx.map((i) => colorFor(i).deep)} total={requiredCount} big />
+            <Plant colors={completedIdx.map((i) => colorOf(habits[i], i).deep)} total={requiredCount} big />
           </div>
 
           {allDone && (
@@ -584,7 +615,7 @@ export default function HabitTracker() {
               const done = isDone(h, activeValues[h.id]);
               const nDone = countDone(h, activeValues[h.id]);
               const streak = streakFor(h, entries, today);
-              const c = colorFor(i);
+              const c = colorOf(h, i);
               const isMulti = h.type === "multi";
               const isWeekly = freqKind(h) === FREQ_PER_WEEK;
               // A day the habit isn't asked for: still loggable as a bonus, but
@@ -602,12 +633,37 @@ export default function HabitTracker() {
                   style={{ background: bg, color: fg, opacity: resting && !done ? 0.62 : 1, transition: "background 0.25s ease, opacity 0.25s ease" }}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="shrink-0 rounded-full p-2" style={{ background: done ? "rgba(255,255,255,0.2)" : c.tint }}>
-                      <Icon size={18} color={done ? BASE.paper : c.deep} />
-                    </div>
+                    {/* The reorder arrows take the icon's place rather than adding
+                        a column, so the name keeps its room in edit mode. */}
+                    {editMode ? (
+                      <div className="flex items-center shrink-0 -ml-2">
+                        <button
+                          onClick={() => moveHabit(i, -1)}
+                          disabled={i === 0}
+                          aria-label={`Monter ${h.name}`}
+                          className="w-11 h-11 flex items-center justify-center active:scale-90 transition-transform disabled:opacity-25"
+                        >
+                          <ChevronUp size={20} />
+                        </button>
+                        <button
+                          onClick={() => moveHabit(i, 1)}
+                          disabled={i === habits.length - 1}
+                          aria-label={`Descendre ${h.name}`}
+                          className="w-11 h-11 flex items-center justify-center active:scale-90 transition-transform disabled:opacity-25"
+                        >
+                          <ChevronDown size={20} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="shrink-0 rounded-full p-2" style={{ background: done ? "rgba(255,255,255,0.2)" : c.tint }}>
+                        <Icon size={18} color={done ? BASE.paper : c.deep} />
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm leading-tight truncate">{h.name}</p>
-                      {h.type === "count" && (
+                      {/* Edit mode drops the progress lines — they're noise when
+                          you're reordering — which buys the name a second line. */}
+                      <p className={`font-medium text-sm leading-tight ${editMode ? "" : "truncate"}`}>{h.name}</p>
+                      {!editMode && h.type === "count" && (
                         editingCount === h.id ? (
                           <CountEditor
                             habit={h}
@@ -628,24 +684,24 @@ export default function HabitTracker() {
                           </button>
                         )
                       )}
-                      {isMulti && (
+                      {!editMode && isMulti && (
                         <p className="text-xs mt-0.5" style={{ color: subtle }}>
                           {nDone} / {h.subitems.length} périodes tenues
                         </p>
                       )}
-                      {isWeekly && (
+                      {!editMode && isWeekly && (
                         <p className="text-xs mt-0.5" style={{ color: subtle }}>
                           {weekDoneCount(h, entries, activeDate)} / {weekTarget(h)} jours cette semaine
                         </p>
                       )}
                       <div className="flex items-center gap-2 flex-wrap">
-                        {streak > 0 && (
+                        {!editMode && streak > 0 && (
                           <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: done ? PALETTE[3].soft : PALETTE[3].deep }}>
                             <Flame size={12} /> {streak} {isWeekly ? (streak > 1 ? "sem. de suite" : "sem.") : "j de suite"}
                           </p>
                         )}
                         {/* A weekly habit already states its target on the line above. */}
-                        {badge && !isWeekly && (
+                        {!editMode && badge && !isWeekly && (
                           <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: subtle }}>
                             {resting && <Moon size={11} />} {badge}
                           </p>
@@ -728,10 +784,31 @@ export default function HabitTracker() {
           </div>
 
           <div className="mb-8">
-            <div className="flex items-baseline justify-between mb-2 gap-2">
-              <p className="text-xs uppercase tracking-widest shrink-0" style={{ color: BASE.muted, fontFamily: "'IBM Plex Mono', monospace" }}>Cette semaine</p>
-              <p className="text-xs text-right" style={{ color: BASE.muted }}>touche un jour pour le compléter</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs uppercase tracking-widest shrink-0" style={{ color: BASE.muted, fontFamily: "'IBM Plex Mono', monospace" }}>
+                {showMonth ? "Ce mois-ci" : "Cette semaine"}
+              </p>
+              <button
+                onClick={() => { setShowMonth((v) => !v); setMonthCursor(null); }}
+                className="text-xs font-medium px-2 -mr-2 active:opacity-60 transition-opacity"
+                style={{ color: PALETTE[1].deep, minHeight: 44 }}
+              >
+                {showMonth ? "Voir la semaine" : "Voir le mois"}
+              </button>
             </div>
+            <p className="text-xs mb-2" style={{ color: BASE.muted }}>touche un jour pour le compléter</p>
+
+            {showMonth ? (
+              <MonthGrid
+                habits={habits}
+                entries={entries}
+                month={monthCursor || today}
+                today={today}
+                activeDate={activeDate}
+                onPickDay={(d) => setViewDate(d === today ? null : d)}
+                onChangeMonth={setMonthCursor}
+              />
+            ) : (
             <div className="flex justify-between items-end rounded-2xl p-3" style={{ background: BASE.paperDeep }}>
               {weekDates.map((d) => {
                 const vals = entries[d] || {};
@@ -750,15 +827,16 @@ export default function HabitTracker() {
                     className="flex-1 flex flex-col items-center gap-1 rounded-xl py-1 active:scale-95 transition-transform"
                     style={{ background: isSelected ? BASE.paper : "transparent" }}
                   >
-                    <Plant colors={idxDone.map((i) => colorFor(i).deep)} total={idxRequired.length} height={72} width={30} />
+                    <Plant colors={idxDone.map((i) => colorOf(habits[i], i).deep)} total={idxRequired.length} height={72} width={30} />
                     <span className="text-xs" style={{ color: isThisToday ? PALETTE[1].deep : BASE.muted, fontWeight: isSelected ? 600 : 400 }}>{DOW[dayIdx]}</span>
                   </button>
                 );
               })}
             </div>
+            )}
           </div>
 
-          {error && <p className="text-sm mb-4" style={{ color: "#B23A3A" }}>{error}</p>}
+          {error && <p className="text-sm mb-4" style={{ color: BASE.danger }}>{error}</p>}
 
           <button
             onClick={() => setFormFor({ habit: null })}
@@ -768,13 +846,22 @@ export default function HabitTracker() {
             <Plus size={16} /> Ajouter une habitude
           </button>
 
-          <button
-            onClick={() => setShowData(true)}
-            className="w-full mt-8 py-3 text-xs flex items-center justify-center gap-1.5 active:opacity-60 transition-opacity"
-            style={{ color: BASE.muted, minHeight: 44 }}
-          >
-            <Shield size={13} /> Mes données &amp; sauvegarde
-          </button>
+          <div className="flex gap-2 mt-8">
+            <button
+              onClick={() => setShowReminder(true)}
+              className="flex-1 py-3 text-xs flex items-center justify-center gap-1.5 active:opacity-60 transition-opacity"
+              style={{ color: BASE.muted, minHeight: 44 }}
+            >
+              <Bell size={13} /> Rappel quotidien
+            </button>
+            <button
+              onClick={() => setShowData(true)}
+              className="flex-1 py-3 text-xs flex items-center justify-center gap-1.5 active:opacity-60 transition-opacity"
+              style={{ color: BASE.muted, minHeight: 44 }}
+            >
+              <Shield size={13} /> Mes données
+            </button>
+          </div>
         </div>
       </div>
 
@@ -800,6 +887,8 @@ export default function HabitTracker() {
           onClose={() => setFormFor(null)}
         />
       )}
+
+      {showReminder && <ReminderSheet onClose={() => setShowReminder(false)} />}
 
       {showData && (
         <DataSheet

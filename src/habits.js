@@ -19,6 +19,14 @@ export const DEFAULT_HABITS = [
   { id: "nosnack", name: "Sans grignotage", type: "multi", icon: "meal", subitems: DEFAULT_PERIODS },
 ];
 
+// Colours used to come from the habit's position in the list, so deleting or
+// reordering reshuffled every card below. Each habit now owns its colour.
+export function nextColorIndex(habits, paletteSize) {
+  const used = new Set(habits.map((h) => h.colorIndex).filter(Number.isInteger));
+  for (let i = 0; i < paletteSize; i++) if (!used.has(i)) return i;
+  return habits.length % paletteSize;
+}
+
 // The app reads and accepts French notation, so it should display it too:
 // 0,75 rather than 0.75, and 8 000 rather than 8000.
 export function fmtNum(n) { return Number(n || 0).toLocaleString("fr-FR"); }

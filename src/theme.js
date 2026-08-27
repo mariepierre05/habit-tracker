@@ -33,3 +33,10 @@ export const ICONS = {
 export const ICON_KEYS = Object.keys(ICONS);
 
 export function iconFor(key) { return ICONS[key] || Check; }
+
+// Lets the month grid shade a day by how much of it was completed, staying on
+// the app's own greens rather than introducing a separate heatmap palette.
+export function withAlpha(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}

@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Droplet, BookOpen, Dumbbell, Footprints, UtensilsCrossed, Check, Plus, Trash2, Flame, X, Minus, Sparkles, Download, Upload, Shield, CalendarClock, RotateCcw } from "lucide-react";
+import { Check, Plus, Trash2, Flame, X, Minus, Download, Upload, Shield, CalendarClock, RotateCcw, Pencil, Moon } from "lucide-react";
 import { loadHabits, saveHabits as persistHabits, loadEntries, saveEntries as persistEntries, exportBackup, parseBackup, restoreBackup, getLastBackup } from "./storage";
+import { BASE, PALETTE, colorFor, iconFor } from "./theme";
+import { DOW, toISO, lastNDates, dayOfYear, fromISO } from "./dates";
+import {
+  DEFAULT_HABITS, isDone, countDone, streakFor, fmtNum,
+  isScheduled, isRequiredOn, countsTowardDay, freqLabel, freqKind,
+  weekDoneCount, weekTarget, FREQ_PER_WEEK,
+} from "./habits";
+import HabitForm from "./HabitForm";
 
 // Traditional French "fête du jour" calendar — [firstName, "Saint"/"Sainte"/""] per day, per month (Jan→Dec).
 const FETE_DATA = [
@@ -23,54 +31,6 @@ function feteDuJour(d) {
   return entry;
 }
 
-const ICONS = {
-  droplet: Droplet,
-  book: BookOpen,
-  dumbbell: Dumbbell,
-  footprints: Footprints,
-  meal: UtensilsCrossed,
-};
-const ICON_KEYS = Object.keys(ICONS);
-
-const DEFAULT_HABITS = [
-  { id: "water", name: "Boire 1,5 L d'eau", type: "count", target: 1.5, unit: "L", step: 0.25, icon: "droplet" },
-  { id: "duolingo", name: "Séance Duolingo", type: "check", icon: "book" },
-  { id: "muscu", name: "Renforcement musculaire", type: "check", icon: "dumbbell" },
-  { id: "steps", name: "Marcher", type: "count", target: 8000, unit: "pas", step: 1000, icon: "footprints" },
-  {
-    id: "nosnack",
-    name: "Sans grignotage",
-    type: "multi",
-    icon: "meal",
-    subitems: [
-      { id: "matin", label: "Matin" },
-      { id: "debut_am", label: "Début d'aprèm" },
-      { id: "fin_am", label: "Fin d'aprèm" },
-      { id: "soir", label: "Soirée" },
-    ],
-  },
-];
-
-const BASE = {
-  ink: "#3A342C",
-  paper: "#FBF7F1",
-  paperDeep: "#F2EADB",
-  line: "#E4DBC7",
-  muted: "#9C917E",
-  stem: "#9BA98D",
-};
-
-// Soft pastel palette — each habit is assigned one, in order.
-const PALETTE = [
-  { soft: "#F3D9D6", deep: "#C4767A", tint: "#FBEEEC" },
-  { soft: "#DCE7D2", deep: "#6E9463", tint: "#EFF4EA" },
-  { soft: "#D7E4EC", deep: "#5C87A3", tint: "#EBF2F6" },
-  { soft: "#F4E3BC", deep: "#C6963C", tint: "#FAF2DE" },
-  { soft: "#E4DAF0", deep: "#8B72B0", tint: "#F2EDF8" },
-  { soft: "#F1DCC6", deep: "#C88A50", tint: "#FAF0E6" },
-];
-function colorFor(i) { return PALETTE[i % PALETTE.length]; }
-
 const QUOTES = [
   "Chaque petit geste compte.",
   "La régularité bat l'intensité.",
@@ -79,29 +39,6 @@ const QUOTES = [
   "Ce que tu répètes, tu deviens.",
   "Petit pas, vraie constance.",
 ];
-
-// The app reads and accepts French notation, so it should display it too:
-// 0,75 rather than 0.75, and 8 000 rather than 8000.
-function fmtNum(n) { return Number(n || 0).toLocaleString("fr-FR"); }
-
-function pad(n) { return String(n).padStart(2, "0"); }
-function toISO(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
-function lastNDates(n) {
-  const out = [];
-  const today = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    out.push(toISO(d));
-  }
-  return out;
-}
-function dayOfYear(d) {
-  const start = new Date(d.getFullYear(), 0, 0);
-  return Math.floor((d - start) / 86400000);
-}
-// Two letters, because single initials give mardi and mercredi the same "M".
-const DOW = ["Di", "Lu", "Ma", "Me", "Je", "Ve", "Sa"];
 
 // Today's date has to live in state: without it, a session left open overnight
 // keeps writing to the previous day. Re-checked at midnight and again whenever
@@ -133,21 +70,6 @@ function useToday() {
   }, []);
 
   return today;
-}
-
-function isDone(habit, value) {
-  if (habit.type === "multi") {
-    if (!value) return false;
-    return habit.subitems.every((s) => value[s.id] === true);
-  }
-  if (value === undefined || value === null) return false;
-  if (habit.type === "check") return value === true;
-  return Number(value) >= habit.target;
-}
-function countDone(habit, value) {
-  if (habit.type !== "multi") return isDone(habit, value) ? 1 : 0;
-  if (!value) return 0;
-  return habit.subitems.filter((s) => value[s.id] === true).length;
 }
 
 // Ticks on its own 15s timer so the rest of the tree (habit cards, plants)
@@ -445,8 +367,8 @@ export default function HabitTracker() {
   const [habits, setHabits] = useState(null);
   const [entries, setEntries] = useState(null);
   const [ready, setReady] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newHabit, setNewHabit] = useState({ name: "", type: "check", target: 1, unit: "", icon: "book" });
+  // null when closed, otherwise { habit } where a null habit means "create".
+  const [formFor, setFormFor] = useState(null);
   const [error, setError] = useState("");
   const [showData, setShowData] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -532,9 +454,14 @@ export default function HabitTracker() {
   const activeDate = viewDate || today;
   const isViewingToday = activeDate === today;
   const activeValues = entries[activeDate] || {};
-  const completedIdx = habits.map((h, i) => (isDone(h, activeValues[h.id]) ? i : -1)).filter((i) => i >= 0);
+  // Only habits actually asked for on this day count towards the tally: a
+  // Mon/Wed/Fri habit must not make Sunday look like a failure, and a weekly
+  // one is judged over its whole week instead of any single day.
+  const requiredIdx = habits.map((h, i) => (isRequiredOn(h, activeDate) ? i : -1)).filter((i) => i >= 0);
+  const completedIdx = requiredIdx.filter((i) => isDone(habits[i], activeValues[habits[i].id]));
   const completedToday = completedIdx.length;
-  const allDone = habits.length > 0 && completedToday === habits.length;
+  const requiredCount = requiredIdx.length;
+  const allDone = requiredCount > 0 && completedToday === requiredCount;
 
   function setValue(habitId, value) {
     const next = { ...entries, [activeDate]: { ...(entries[activeDate] || {}), [habitId]: value } };
@@ -556,18 +483,6 @@ export default function HabitTracker() {
     setValue(h.id, isNaN(parsed) ? 0 : Math.max(0, Math.round(parsed * 100) / 100));
     setEditingCount(null);
   }
-  function streakFor(h) {
-    let count = 0;
-    const dates = lastNDates(60).reverse();
-    for (let i = 0; i < dates.length; i++) {
-      const d = dates[i];
-      const val = (entries[d] || {})[h.id];
-      const done = isDone(h, val);
-      if (d === today && !done) continue;
-      if (done) count++; else break;
-    }
-    return count;
-  }
   // Entries stay keyed by habit id and are never deleted, so putting the habit
   // back at its original index restores its history and streak untouched.
   function removeHabit(id) {
@@ -587,15 +502,12 @@ export default function HabitTracker() {
     saveHabits(next);
     setUndo(null);
   }
-  function addHabit() {
-    if (!newHabit.name.trim()) { setError("Donne un nom à cette habitude."); return; }
-    const id = `h_${Date.now()}`;
-    const habit = newHabit.type === "check"
-      ? { id, name: newHabit.name.trim(), type: "check", icon: newHabit.icon }
-      : { id, name: newHabit.name.trim(), type: "count", target: Number(newHabit.target) || 1, unit: newHabit.unit || "", step: Math.max(1, Math.round((Number(newHabit.target) || 1) / 8)), icon: newHabit.icon };
-    saveHabits([...habits, habit]);
-    setNewHabit({ name: "", type: "check", target: 1, unit: "", icon: "book" });
-    setShowAdd(false);
+  // Editing keeps the habit id, and so keeps every entry already recorded
+  // against it — the whole point of editing rather than delete-and-recreate.
+  function saveHabit(habit) {
+    const known = habits.some((h) => h.id === habit.id);
+    saveHabits(known ? habits.map((h) => (h.id === habit.id ? habit : h)) : [...habits, habit]);
+    setFormFor(null);
     setError("");
   }
 
@@ -635,12 +547,12 @@ export default function HabitTracker() {
 
           <div className="flex items-center justify-between rounded-2xl p-4 mb-3" style={{ background: BASE.paperDeep }}>
             <div>
-              <p className="text-2xl font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>{completedToday}/{habits.length}</p>
+              <p className="text-2xl font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>{completedToday}/{requiredCount}</p>
               <p className="text-sm" style={{ color: BASE.muted }}>
                 {isViewingToday ? "habitudes tenues aujourd'hui" : "habitudes tenues ce jour-là"}
               </p>
             </div>
-            <Plant colors={completedIdx.map((i) => colorFor(i).deep)} total={habits.length} big />
+            <Plant colors={completedIdx.map((i) => colorFor(i).deep)} total={requiredCount} big />
           </div>
 
           {allDone && (
@@ -668,12 +580,17 @@ export default function HabitTracker() {
 
           <div className="space-y-3 mb-7">
             {habits.map((h, i) => {
-              const Icon = ICONS[h.icon] || Check;
+              const Icon = iconFor(h.icon);
               const done = isDone(h, activeValues[h.id]);
               const nDone = countDone(h, activeValues[h.id]);
-              const streak = streakFor(h);
+              const streak = streakFor(h, entries, today);
               const c = colorFor(i);
               const isMulti = h.type === "multi";
+              const isWeekly = freqKind(h) === FREQ_PER_WEEK;
+              // A day the habit isn't asked for: still loggable as a bonus, but
+              // shown as a rest day so an empty card doesn't read as a failure.
+              const resting = !isScheduled(h, activeDate);
+              const badge = freqLabel(h);
               // For multi-period habits, the card tints gradually as periods get checked off.
               const bg = done ? c.deep : isMulti && nDone > 0 ? c.tint : BASE.paperDeep;
               const fg = done ? BASE.paper : BASE.ink;
@@ -682,7 +599,7 @@ export default function HabitTracker() {
                 <div
                   key={h.id}
                   className="rounded-2xl p-4"
-                  style={{ background: bg, color: fg, transition: "background 0.25s ease" }}
+                  style={{ background: bg, color: fg, opacity: resting && !done ? 0.62 : 1, transition: "background 0.25s ease, opacity 0.25s ease" }}
                 >
                   <div className="flex items-center gap-3">
                     <div className="shrink-0 rounded-full p-2" style={{ background: done ? "rgba(255,255,255,0.2)" : c.tint }}>
@@ -716,22 +633,45 @@ export default function HabitTracker() {
                           {nDone} / {h.subitems.length} périodes tenues
                         </p>
                       )}
-                      {streak > 0 && (
-                        <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: done ? PALETTE[3].soft : PALETTE[3].deep }}>
-                          <Flame size={12} /> {streak} j de suite
+                      {isWeekly && (
+                        <p className="text-xs mt-0.5" style={{ color: subtle }}>
+                          {weekDoneCount(h, entries, activeDate)} / {weekTarget(h)} jours cette semaine
                         </p>
                       )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {streak > 0 && (
+                          <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: done ? PALETTE[3].soft : PALETTE[3].deep }}>
+                            <Flame size={12} /> {streak} {isWeekly ? (streak > 1 ? "sem. de suite" : "sem.") : "j de suite"}
+                          </p>
+                        )}
+                        {/* A weekly habit already states its target on the line above. */}
+                        {badge && !isWeekly && (
+                          <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: subtle }}>
+                            {resting && <Moon size={11} />} {badge}
+                          </p>
+                        )}
+                      </div>
                     </div>
 
                     {editMode ? (
-                      <button
-                        onClick={() => removeHabit(h.id)}
-                        aria-label={`Supprimer ${h.name}`}
-                        className="shrink-0 w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                        style={{ background: "#B23A3A", color: "#FFFFFF" }}
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => setFormFor({ habit: h })}
+                          aria-label={`Modifier ${h.name}`}
+                          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                          style={{ background: BASE.paper, color: BASE.ink, border: `1px solid ${BASE.line}` }}
+                        >
+                          <Pencil size={17} />
+                        </button>
+                        <button
+                          onClick={() => removeHabit(h.id)}
+                          aria-label={`Supprimer ${h.name}`}
+                          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                          style={{ background: BASE.danger, color: "#FFFFFF" }}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     ) : (
                       <>
                         {h.type === "check" && (
@@ -795,8 +735,9 @@ export default function HabitTracker() {
             <div className="flex justify-between items-end rounded-2xl p-3" style={{ background: BASE.paperDeep }}>
               {weekDates.map((d) => {
                 const vals = entries[d] || {};
-                const idxDone = habits.map((h, i) => (isDone(h, vals[h.id]) ? i : -1)).filter((i) => i >= 0);
-                const dayDate = new Date(d + "T00:00:00");
+                const idxRequired = habits.map((h, i) => (isRequiredOn(h, d) ? i : -1)).filter((i) => i >= 0);
+                const idxDone = idxRequired.filter((i) => isDone(habits[i], vals[habits[i].id]));
+                const dayDate = fromISO(d);
                 const dayIdx = dayDate.getDay();
                 const isThisToday = d === today;
                 const isSelected = d === activeDate;
@@ -809,7 +750,7 @@ export default function HabitTracker() {
                     className="flex-1 flex flex-col items-center gap-1 rounded-xl py-1 active:scale-95 transition-transform"
                     style={{ background: isSelected ? BASE.paper : "transparent" }}
                   >
-                    <Plant colors={idxDone.map((i) => colorFor(i).deep)} total={habits.length} height={72} width={30} />
+                    <Plant colors={idxDone.map((i) => colorFor(i).deep)} total={idxRequired.length} height={72} width={30} />
                     <span className="text-xs" style={{ color: isThisToday ? PALETTE[1].deep : BASE.muted, fontWeight: isSelected ? 600 : 400 }}>{DOW[dayIdx]}</span>
                   </button>
                 );
@@ -819,84 +760,13 @@ export default function HabitTracker() {
 
           {error && <p className="text-sm mb-4" style={{ color: "#B23A3A" }}>{error}</p>}
 
-          {!showAdd ? (
-            <button
-              onClick={() => setShowAdd(true)}
-              className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 text-sm font-medium active:scale-[0.98] transition-transform"
-              style={{ border: `1.5px dashed ${BASE.stem}`, color: PALETTE[1].deep }}
-            >
-              <Plus size={16} /> Ajouter une habitude
-            </button>
-          ) : (
-            <div className="rounded-2xl p-4" style={{ background: BASE.paperDeep }}>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium">Nouvelle habitude</p>
-                <button onClick={() => setShowAdd(false)} aria-label="Fermer"><X size={16} /></button>
-              </div>
-              <input
-                value={newHabit.name}
-                onChange={(e) => setNewHabit({ ...newHabit, name: e.target.value })}
-                placeholder="Ex : Lire 10 pages"
-                className="w-full rounded-xl px-3 py-2 mb-3 text-sm outline-none"
-                style={{ background: BASE.paper, border: `1px solid ${BASE.line}` }}
-              />
-              <div className="flex gap-2 mb-3">
-                <button
-                  onClick={() => setNewHabit({ ...newHabit, type: "check" })}
-                  className="flex-1 rounded-xl py-2 text-sm"
-                  style={{ background: newHabit.type === "check" ? PALETTE[1].deep : BASE.paper, color: newHabit.type === "check" ? BASE.paper : BASE.ink, border: `1px solid ${BASE.line}` }}
-                >
-                  Fait / pas fait
-                </button>
-                <button
-                  onClick={() => setNewHabit({ ...newHabit, type: "count" })}
-                  className="flex-1 rounded-xl py-2 text-sm"
-                  style={{ background: newHabit.type === "count" ? PALETTE[1].deep : BASE.paper, color: newHabit.type === "count" ? BASE.paper : BASE.ink, border: `1px solid ${BASE.line}` }}
-                >
-                  Objectif chiffré
-                </button>
-              </div>
-              {newHabit.type === "count" && (
-                <div className="flex gap-2 mb-3">
-                  <input
-                    type="number"
-                    value={newHabit.target}
-                    onChange={(e) => setNewHabit({ ...newHabit, target: e.target.value })}
-                    placeholder="Objectif"
-                    className="w-1/2 rounded-xl px-3 py-2 text-sm outline-none"
-                    style={{ background: BASE.paper, border: `1px solid ${BASE.line}` }}
-                  />
-                  <input
-                    value={newHabit.unit}
-                    onChange={(e) => setNewHabit({ ...newHabit, unit: e.target.value })}
-                    placeholder="Unité (pas, L, min…)"
-                    className="w-1/2 rounded-xl px-3 py-2 text-sm outline-none"
-                    style={{ background: BASE.paper, border: `1px solid ${BASE.line}` }}
-                  />
-                </div>
-              )}
-              <div className="flex gap-2 mb-4">
-                {ICON_KEYS.map((k) => {
-                  const Icon = ICONS[k];
-                  const sel = newHabit.icon === k;
-                  return (
-                    <button
-                      key={k}
-                      onClick={() => setNewHabit({ ...newHabit, icon: k })}
-                      className="w-9 h-9 rounded-full flex items-center justify-center"
-                      style={{ background: sel ? PALETTE[1].deep : BASE.paper, color: sel ? BASE.paper : BASE.ink, border: `1px solid ${BASE.line}` }}
-                      aria-label={k}
-                    >
-                      <Icon size={15} />
-                    </button>
-                  );
-                })}
-              </div>
-              <button onClick={addHabit} className="w-full rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform" style={{ background: PALETTE[3].deep, color: BASE.paper }}>
-                <Sparkles size={14} /> Ajouter
-              </button>
-            </div>
-          )}
+          <button
+            onClick={() => setFormFor({ habit: null })}
+            className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 text-sm font-medium active:scale-[0.98] transition-transform"
+            style={{ border: `1.5px dashed ${BASE.stem}`, color: PALETTE[1].deep, minHeight: 44 }}
+          >
+            <Plus size={16} /> Ajouter une habitude
+          </button>
 
           <button
             onClick={() => setShowData(true)}
@@ -921,6 +791,14 @@ export default function HabitTracker() {
             </button>
           </div>
         </div>
+      )}
+
+      {formFor && (
+        <HabitForm
+          habit={formFor.habit}
+          onSave={saveHabit}
+          onClose={() => setFormFor(null)}
+        />
       )}
 
       {showData && (

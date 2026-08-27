@@ -1,18 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Droplet, BookOpen, Dumbbell, Footprints, UtensilsCrossed, Check, Plus, Trash2, Flame, X, Minus, Sparkles } from "lucide-react";
-
-// Local storage shim mirroring the previous artifact storage API (get returns
-// {value} or null, set persists synchronously) so the rest of the component
-// logic below didn't need to change shape.
-const storage = {
-  async get(key) {
-    const v = localStorage.getItem(key);
-    return v === null ? null : { value: v };
-  },
-  async set(key, value) {
-    localStorage.setItem(key, value);
-  },
-};
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Droplet, BookOpen, Dumbbell, Footprints, UtensilsCrossed, Check, Plus, Trash2, Flame, X, Minus, Sparkles, Download, Upload, Shield } from "lucide-react";
+import { loadHabits, saveHabits as persistHabits, loadEntries, saveEntries as persistEntries, exportBackup, parseBackup, restoreBackup, getLastBackup } from "./storage";
 
 // Traditional French "fête du jour" calendar — [firstName, "Saint"/"Sainte"/""] per day, per month (Jan→Dec).
 const FETE_DATA = [
@@ -109,6 +97,38 @@ function dayOfYear(d) {
   return Math.floor((d - start) / 86400000);
 }
 const DOW = ["D", "L", "M", "M", "J", "V", "S"];
+
+// Today's date has to live in state: without it, a session left open overnight
+// keeps writing to the previous day. Re-checked at midnight and again whenever
+// the app comes back to the foreground, since iOS freezes timers in background.
+function useToday() {
+  const [today, setToday] = useState(() => toISO(new Date()));
+
+  useEffect(() => {
+    let timer;
+    const check = () => {
+      const current = toISO(new Date());
+      setToday((prev) => (prev === current ? prev : current));
+      schedule();
+    };
+    const schedule = () => {
+      const nextMidnight = new Date();
+      nextMidnight.setHours(24, 0, 0, 0);
+      clearTimeout(timer);
+      timer = setTimeout(check, nextMidnight - Date.now() + 1000);
+    };
+    const onVisible = () => { if (!document.hidden) check(); };
+
+    schedule();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  return today;
+}
 
 function isDone(habit, value) {
   if (habit.type === "multi") {
@@ -241,6 +261,146 @@ function Plant({ colors, total, height = 176, width = 140, big = false }) {
   );
 }
 
+function formatDateTime(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d)) return null;
+  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+}
+
+// Backup and restore. Restoring replaces everything, so the file is parsed and
+// summarised first and only written once the user confirms what's in it.
+function DataSheet({ onClose, onRestore }) {
+  const [pending, setPending] = useState(null);
+  const [status, setStatus] = useState("");
+  const [problem, setProblem] = useState("");
+  const [lastBackup, setLastBackup] = useState(null);
+  const fileRef = useRef(null);
+
+  useEffect(() => { getLastBackup().then(setLastBackup); }, []);
+
+  async function handleExport() {
+    setProblem("");
+    try {
+      const result = await exportBackup();
+      if (result === "cancelled") return;
+      setStatus(result === "shared" ? "Sauvegarde envoyée." : "Sauvegarde téléchargée.");
+      setLastBackup(new Date().toISOString());
+    } catch (_) {
+      setProblem("L'export a échoué. Réessaie.");
+    }
+  }
+
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setProblem("");
+    setStatus("");
+    try {
+      setPending(parseBackup(await file.text()));
+    } catch (err) {
+      setProblem(err.message);
+    }
+  }
+
+  async function confirmRestore() {
+    try {
+      await restoreBackup(pending);
+      onRestore(pending);
+    } catch (_) {
+      setProblem("La restauration a échoué. Tes données actuelles sont intactes.");
+      setPending(null);
+    }
+  }
+
+  const lastLabel = formatDateTime(lastBackup);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(58,52,44,0.35)" }} onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-t-[28px] p-5 pb-8"
+        style={{ background: BASE.paper, maxHeight: "90vh", overflowY: "auto" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-xl font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>Mes données</h2>
+          <button onClick={onClose} aria-label="Fermer" className="w-11 h-11 -mr-2 flex items-center justify-center active:scale-90 transition-transform">
+            <X size={20} />
+          </button>
+        </div>
+
+        {!pending ? (
+          <>
+            <p className="text-sm mb-5" style={{ color: BASE.muted }}>
+              Ton historique est enregistré sur cet appareil uniquement. Fais une sauvegarde de temps en temps
+              pour pouvoir le retrouver sur un nouveau téléphone.
+            </p>
+
+            <div className="rounded-2xl p-4 mb-3 flex items-start gap-3" style={{ background: PALETTE[1].tint, border: `1px solid ${PALETTE[1].soft}` }}>
+              <Shield size={18} color={PALETTE[1].deep} className="shrink-0 mt-0.5" />
+              <p className="text-xs leading-relaxed" style={{ color: BASE.ink }}>
+                {lastLabel
+                  ? `Dernière sauvegarde le ${lastLabel}.`
+                  : "Tu n'as encore jamais sauvegardé tes données."}
+              </p>
+            </div>
+
+            <button
+              onClick={handleExport}
+              className="w-full rounded-2xl py-3.5 mb-2 text-sm font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+              style={{ background: PALETTE[1].deep, color: BASE.paper, minHeight: 44 }}
+            >
+              <Download size={16} /> Sauvegarder mes données
+            </button>
+
+            <button
+              onClick={() => fileRef.current && fileRef.current.click()}
+              className="w-full rounded-2xl py-3.5 text-sm font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+              style={{ border: `1.5px solid ${BASE.line}`, color: BASE.ink, minHeight: 44 }}
+            >
+              <Upload size={16} /> Restaurer une sauvegarde
+            </button>
+            <input ref={fileRef} type="file" accept="application/json,.json" onChange={handleFile} className="hidden" />
+
+            {status && <p className="text-sm mt-4 text-center" style={{ color: PALETTE[1].deep }}>{status}</p>}
+          </>
+        ) : (
+          <>
+            <p className="text-sm mb-4" style={{ color: BASE.muted }}>Cette sauvegarde contient :</p>
+            <div className="rounded-2xl p-4 mb-4" style={{ background: BASE.paperDeep }}>
+              <p className="text-sm mb-1"><strong>{pending.habitCount}</strong> habitude{pending.habitCount > 1 ? "s" : ""}</p>
+              <p className="text-sm mb-1"><strong>{pending.dayCount}</strong> jour{pending.dayCount > 1 ? "s" : ""} d'historique</p>
+              {formatDateTime(pending.exportedAt) && (
+                <p className="text-xs mt-2" style={{ color: BASE.muted }}>Exportée le {formatDateTime(pending.exportedAt)}</p>
+              )}
+            </div>
+            <p className="text-sm mb-4" style={{ color: "#B23A3A" }}>
+              Elle remplacera intégralement tes habitudes et ton historique actuels.
+            </p>
+            <button
+              onClick={confirmRestore}
+              className="w-full rounded-2xl py-3.5 mb-2 text-sm font-medium active:scale-[0.98] transition-transform"
+              style={{ background: "#B23A3A", color: BASE.paper, minHeight: 44 }}
+            >
+              Remplacer mes données
+            </button>
+            <button
+              onClick={() => setPending(null)}
+              className="w-full rounded-2xl py-3.5 text-sm font-medium active:scale-[0.98] transition-transform"
+              style={{ border: `1.5px solid ${BASE.line}`, color: BASE.ink, minHeight: 44 }}
+            >
+              Annuler
+            </button>
+          </>
+        )}
+
+        {problem && <p className="text-sm mt-4 text-center" style={{ color: "#B23A3A" }}>{problem}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function HabitTracker() {
   const [habits, setHabits] = useState(null);
   const [entries, setEntries] = useState(null);
@@ -248,6 +408,7 @@ export default function HabitTracker() {
   const [showAdd, setShowAdd] = useState(false);
   const [newHabit, setNewHabit] = useState({ name: "", type: "check", target: 1, unit: "", icon: "book" });
   const [error, setError] = useState("");
+  const [showData, setShowData] = useState(false);
 
   useEffect(() => {
     if (!error) return;
@@ -255,20 +416,15 @@ export default function HabitTracker() {
     return () => clearTimeout(id);
   }, [error]);
 
-  const today = toISO(new Date());
+  const today = useToday();
   const weekDates = lastNDates(7);
   const quote = QUOTES[dayOfYear(new Date()) % QUOTES.length];
 
   useEffect(() => {
     (async () => {
-      let h = DEFAULT_HABITS;
-      let e = {};
-      try {
-        const r = await storage.get("habits");
-        if (r && r.value) h = JSON.parse(r.value);
-      } catch (_) {
-        try { await storage.set("habits", JSON.stringify(DEFAULT_HABITS)); } catch (_) {}
-      }
+      const stored = await loadHabits();
+      const firstRun = stored === null;
+      let h = firstRun ? DEFAULT_HABITS : stored;
 
       // Migration: an earlier version of this app saved "nosnack" as a simple
       // check habit. If that old shape is still in storage, upgrade it to the
@@ -282,16 +438,14 @@ export default function HabitTracker() {
         }
         return hb;
       });
-      if (migrated) {
-        try { await storage.set("habits", JSON.stringify(h)); } catch (_) {}
+      // Seeding on first run keeps storage the single source of truth, so a
+      // backup taken before any edit still contains the habit list.
+      if (firstRun || migrated) {
+        try { await persistHabits(h); } catch (_) {}
       }
 
-      try {
-        const r = await storage.get("entries");
-        if (r && r.value) e = JSON.parse(r.value);
-      } catch (_) {}
       setHabits(h);
-      setEntries(e);
+      setEntries(await loadEntries());
       setReady(true);
     })();
   }, []);
@@ -299,30 +453,20 @@ export default function HabitTracker() {
   const saveHabits = useCallback(async (next) => {
     setHabits(next);
     try {
-      await storage.set("habits", JSON.stringify(next));
+      await persistHabits(next);
       setError("");
     } catch (_) {
-      try {
-        await storage.set("habits", JSON.stringify(next));
-        setError("");
-      } catch (_) {
-        setError("Impossible d'enregistrer. Réessaie.");
-      }
+      setError("Impossible d'enregistrer. Réessaie.");
     }
   }, []);
 
   const saveEntries = useCallback(async (next) => {
     setEntries(next);
     try {
-      await storage.set("entries", JSON.stringify(next));
+      await persistEntries(next);
       setError("");
     } catch (_) {
-      try {
-        await storage.set("entries", JSON.stringify(next));
-        setError("");
-      } catch (_) {
-        setError("Impossible d'enregistrer. Réessaie.");
-      }
+      setError("Impossible d'enregistrer. Réessaie.");
     }
   }, []);
 
@@ -613,11 +757,26 @@ export default function HabitTracker() {
             </div>
           )}
 
-          <p className="text-xs text-center mt-8" style={{ color: BASE.muted }}>
-            Tes données restent enregistrées sur cet appareil, même si tu fermes l'app.
-          </p>
+          <button
+            onClick={() => setShowData(true)}
+            className="w-full mt-8 py-3 text-xs flex items-center justify-center gap-1.5 active:opacity-60 transition-opacity"
+            style={{ color: BASE.muted, minHeight: 44 }}
+          >
+            <Shield size={13} /> Mes données &amp; sauvegarde
+          </button>
         </div>
       </div>
+
+      {showData && (
+        <DataSheet
+          onClose={() => setShowData(false)}
+          onRestore={(restored) => {
+            setHabits(restored.habits);
+            setEntries(restored.entries);
+            setShowData(false);
+          }}
+        />
+      )}
     </div>
   );
 }

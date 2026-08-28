@@ -11,7 +11,6 @@ import {
 import HabitForm from "./HabitForm";
 import MonthGrid from "./MonthGrid";
 import ReminderSheet from "./ReminderSheet";
-import { useLockBodyScroll } from "./useLockBodyScroll";
 
 // Traditional French "fête du jour" calendar — [firstName, "Saint"/"Sainte"/""] per day, per month (Jan→Dec).
 const FETE_DATA = [
@@ -242,7 +241,6 @@ function formatDateTime(iso) {
 // Backup and restore. Restoring replaces everything, so the file is parsed and
 // summarised first and only written once the user confirms what's in it.
 function DataSheet({ onClose, onRestore }) {
-  useLockBodyScroll();
   const [pending, setPending] = useState(null);
   const [status, setStatus] = useState("");
   const [problem, setProblem] = useState("");
@@ -840,13 +838,17 @@ export default function HabitTracker() {
 
           {error && <p className="text-sm mb-4" style={{ color: BASE.danger }}>{error}</p>}
 
-          <button
-            onClick={() => setFormFor({ habit: null })}
-            className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 text-sm font-medium active:scale-[0.98] transition-transform"
-            style={{ border: `1.5px dashed ${BASE.stem}`, color: PALETTE[1].deep, minHeight: 44 }}
-          >
-            <Plus size={16} /> Ajouter une habitude
-          </button>
+          {formFor ? (
+            <HabitForm habit={formFor.habit} onSave={saveHabit} onClose={() => setFormFor(null)} />
+          ) : (
+            <button
+              onClick={() => setFormFor({ habit: null })}
+              className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 text-sm font-medium active:scale-[0.98] transition-transform"
+              style={{ border: `1.5px dashed ${BASE.stem}`, color: PALETTE[1].deep, minHeight: 44 }}
+            >
+              <Plus size={16} /> Ajouter une habitude
+            </button>
+          )}
 
           <div className="flex gap-2 mt-8">
             <button
@@ -880,14 +882,6 @@ export default function HabitTracker() {
             </button>
           </div>
         </div>
-      )}
-
-      {formFor && (
-        <HabitForm
-          habit={formFor.habit}
-          onSave={saveHabit}
-          onClose={() => setFormFor(null)}
-        />
       )}
 
       {showReminder && <ReminderSheet onClose={() => setShowReminder(false)} />}

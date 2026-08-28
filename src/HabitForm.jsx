@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { X, Plus, Check, Sparkles, Minus, Trash2 } from "lucide-react";
 import { BASE, PALETTE, ICONS, ICON_KEYS } from "./theme";
 import { DOW } from "./dates";
 import { FREQ_DAILY, FREQ_WEEKDAYS, FREQ_PER_WEEK, DEFAULT_PERIODS, freqKind, weekTarget, stepFor } from "./habits";
-import { useLockBodyScroll } from "./useLockBodyScroll";
 
 const TYPES = [
   { key: "check", label: "Fait / pas fait" },
@@ -111,11 +110,16 @@ function Label({ children }) {
 }
 
 export default function HabitForm({ habit, onSave, onClose }) {
-  useLockBodyScroll();
   const [form, setForm] = useState(() => habitToForm(habit));
   const [problem, setProblem] = useState("");
   const editing = !!habit;
+  const panelRef = useRef(null);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+
+  // Editing is triggered from a card that may be far above the form.
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
 
   function toggleDay(d) {
     set({ freqDays: form.freqDays.includes(d) ? form.freqDays.filter((x) => x !== d) : [...form.freqDays, d] });
@@ -142,17 +146,15 @@ export default function HabitForm({ habit, onSave, onClose }) {
     onSave(formToHabit(form, habit));
   }
 
+  // Deliberately laid out in the page rather than in a fixed overlay. A text
+  // field inside a `position: fixed` layer is a long-standing iOS trap — the
+  // tap can fail to focus it and the keyboard never opens — and this form was
+  // reported broken on iPhone only after it was turned into a floating sheet.
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center"
-      style={{ background: "rgba(58,52,44,0.35)" }}
-      // Closing on the backdrop itself rather than relying on the panel to stop
-      // propagation: a tap inside the sheet can then never reach this handler.
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="sheet-panel w-full max-w-md rounded-t-[28px] p-5 pb-8" style={{ background: BASE.paper }}>
+    <div ref={panelRef} className="rounded-2xl p-4" style={{ background: BASE.paperDeep }}>
+      <div>
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xl font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>
+          <h2 className="text-lg font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>
             {editing ? "Modifier l'habitude" : "Nouvelle habitude"}
           </h2>
           <button onClick={onClose} aria-label="Fermer" className="w-11 h-11 -mr-2 flex items-center justify-center active:scale-90 transition-transform">

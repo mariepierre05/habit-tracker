@@ -2,10 +2,8 @@ import React, { useState } from "react";
 import { X, Bell, CalendarPlus } from "lucide-react";
 import { BASE, PALETTE } from "./theme";
 import { getReminderTime, shareReminder } from "./reminder";
-import { useLockBodyScroll } from "./useLockBodyScroll";
 
 export default function ReminderSheet({ onClose }) {
-  useLockBodyScroll();
   const [time, setTime] = useState(() => getReminderTime() || "20:00");
   const [status, setStatus] = useState("");
   const [problem, setProblem] = useState("");

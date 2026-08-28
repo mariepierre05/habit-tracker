@@ -3,6 +3,7 @@ import { X, Plus, Check, Sparkles, Minus, Trash2 } from "lucide-react";
 import { BASE, PALETTE, ICONS, ICON_KEYS } from "./theme";
 import { DOW } from "./dates";
 import { FREQ_DAILY, FREQ_WEEKDAYS, FREQ_PER_WEEK, DEFAULT_PERIODS, freqKind, weekTarget, stepFor } from "./habits";
+import { useLockBodyScroll } from "./useLockBodyScroll";
 
 const TYPES = [
   { key: "check", label: "Fait / pas fait" },
@@ -110,6 +111,7 @@ function Label({ children }) {
 }
 
 export default function HabitForm({ habit, onSave, onClose }) {
+  useLockBodyScroll();
   const [form, setForm] = useState(() => habitToForm(habit));
   const [problem, setProblem] = useState("");
   const editing = !!habit;
@@ -141,12 +143,14 @@ export default function HabitForm({ habit, onSave, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(58,52,44,0.35)" }} onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-t-[28px] p-5 pb-8"
-        style={{ background: BASE.paper, maxHeight: "92vh", overflowY: "auto" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center"
+      style={{ background: "rgba(58,52,44,0.35)" }}
+      // Closing on the backdrop itself rather than relying on the panel to stop
+      // propagation: a tap inside the sheet can then never reach this handler.
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="sheet-panel w-full max-w-md rounded-t-[28px] p-5 pb-8" style={{ background: BASE.paper }}>
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-xl font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>
             {editing ? "Modifier l'habitude" : "Nouvelle habitude"}
@@ -162,7 +166,7 @@ export default function HabitForm({ habit, onSave, onClose }) {
           onChange={(e) => set({ name: e.target.value })}
           placeholder="Ex : Lire 10 pages"
           aria-label="Nom de l'habitude"
-          className="w-full rounded-xl px-3 text-sm outline-none"
+          className="w-full rounded-xl px-3 outline-none"
           style={{ ...inputStyle, minHeight: 44 }}
         />
 
@@ -185,7 +189,7 @@ export default function HabitForm({ habit, onSave, onClose }) {
                 onChange={(e) => set({ target: e.target.value })}
                 placeholder="8000"
                 aria-label="Objectif chiffré"
-                className="w-1/2 rounded-xl px-3 text-sm outline-none"
+                className="w-1/2 rounded-xl px-3 outline-none"
                 style={{ ...inputStyle, minHeight: 44 }}
               />
               <input
@@ -193,7 +197,7 @@ export default function HabitForm({ habit, onSave, onClose }) {
                 onChange={(e) => set({ unit: e.target.value })}
                 placeholder="pas, L, min…"
                 aria-label="Unité"
-                className="w-1/2 rounded-xl px-3 text-sm outline-none"
+                className="w-1/2 rounded-xl px-3 outline-none"
                 style={{ ...inputStyle, minHeight: 44 }}
               />
             </div>
@@ -211,7 +215,7 @@ export default function HabitForm({ habit, onSave, onClose }) {
                     onChange={(e) => setPeriod(i, e.target.value)}
                     placeholder={`Moment ${i + 1}`}
                     aria-label={`Moment ${i + 1}`}
-                    className="flex-1 rounded-xl px-3 text-sm outline-none"
+                    className="flex-1 rounded-xl px-3 outline-none"
                     style={{ ...inputStyle, minHeight: 44 }}
                   />
                   <button

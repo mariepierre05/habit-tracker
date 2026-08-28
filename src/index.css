@@ -21,6 +21,21 @@ button {
   touch-action: manipulation;
 }
 
+/* iOS zooms the whole page when a focused field is under 16px, which throws
+   the layout off just as the keyboard appears. */
+input, select, textarea {
+  font-size: 16px;
+}
+
+/* dvh tracks the viewport as the keyboard and toolbars appear; vh does not,
+   and is kept as the fallback for anything that doesn't understand dvh. */
+.sheet-panel {
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 @keyframes pop-in {
   from { transform: scale(0.5); opacity: 0; }
   to { transform: scale(1); opacity: 1; }

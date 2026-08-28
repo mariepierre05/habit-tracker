@@ -2,8 +2,10 @@ import React, { useState } from "react";
 import { X, Bell, CalendarPlus } from "lucide-react";
 import { BASE, PALETTE } from "./theme";
 import { getReminderTime, shareReminder } from "./reminder";
+import { useLockBodyScroll } from "./useLockBodyScroll";
 
 export default function ReminderSheet({ onClose }) {
+  useLockBodyScroll();
   const [time, setTime] = useState(() => getReminderTime() || "20:00");
   const [status, setStatus] = useState("");
   const [problem, setProblem] = useState("");
@@ -25,12 +27,12 @@ export default function ReminderSheet({ onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(58,52,44,0.35)" }} onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-t-[28px] p-5 pb-8"
-        style={{ background: BASE.paper, maxHeight: "90vh", overflowY: "auto" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center"
+      style={{ background: "rgba(58,52,44,0.35)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="sheet-panel w-full max-w-md rounded-t-[28px] p-5 pb-8" style={{ background: BASE.paper }}>
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-xl font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>Rappel quotidien</h2>
           <button onClick={onClose} aria-label="Fermer" className="w-11 h-11 -mr-2 flex items-center justify-center active:scale-90 transition-transform">
@@ -49,7 +51,7 @@ export default function ReminderSheet({ onClose }) {
             value={time}
             onChange={(e) => setTime(e.target.value)}
             aria-label="Heure du rappel"
-            className="rounded-xl px-3 text-base outline-none"
+            className="rounded-xl px-3 outline-none"
             style={{ background: BASE.paper, border: `1px solid ${BASE.line}`, color: BASE.ink, minHeight: 44 }}
           />
         </label>

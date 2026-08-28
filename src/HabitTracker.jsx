@@ -11,6 +11,7 @@ import {
 import HabitForm from "./HabitForm";
 import MonthGrid from "./MonthGrid";
 import ReminderSheet from "./ReminderSheet";
+import { useLockBodyScroll } from "./useLockBodyScroll";
 
 // Traditional French "fête du jour" calendar — [firstName, "Saint"/"Sainte"/""] per day, per month (Jan→Dec).
 const FETE_DATA = [
@@ -216,7 +217,7 @@ function CountEditor({ habit, value, accent, onCommit }) {
         onBlur={() => onCommit(draft)}
         onKeyDown={(e) => { if (e.key === "Enter") onCommit(draft); }}
         aria-label={`Valeur pour ${habit.name}`}
-        className="w-20 rounded-lg px-2 py-1 text-sm outline-none"
+        className="w-20 rounded-lg px-2 py-1 outline-none"
         style={{ background: BASE.paper, color: BASE.ink, border: `1px solid ${accent}` }}
       />
       <button
@@ -241,6 +242,7 @@ function formatDateTime(iso) {
 // Backup and restore. Restoring replaces everything, so the file is parsed and
 // summarised first and only written once the user confirms what's in it.
 function DataSheet({ onClose, onRestore }) {
+  useLockBodyScroll();
   const [pending, setPending] = useState(null);
   const [status, setStatus] = useState("");
   const [problem, setProblem] = useState("");
@@ -287,12 +289,12 @@ function DataSheet({ onClose, onRestore }) {
   const lastLabel = formatDateTime(lastBackup);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(58,52,44,0.35)" }} onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-t-[28px] p-5 pb-8"
-        style={{ background: BASE.paper, maxHeight: "90vh", overflowY: "auto" }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center"
+      style={{ background: "rgba(58,52,44,0.35)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="sheet-panel w-full max-w-md rounded-t-[28px] p-5 pb-8" style={{ background: BASE.paper }}>
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-xl font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>Mes données</h2>
           <button onClick={onClose} aria-label="Fermer" className="w-11 h-11 -mr-2 flex items-center justify-center active:scale-90 transition-transform">

@@ -127,6 +127,7 @@ export default function HabitForm({ habit, onSave, onClose }) {
   // which element is hit, what sits at those coordinates, whether focus lands.
   // Remove once the cause is known.
   const [log, setLog] = useState([]);
+  const [probeText, setProbeText] = useState("");
   useEffect(() => {
     const el = panelRef.current;
     if (!el) return;
@@ -142,11 +143,13 @@ export default function HabitForm({ habit, onSave, onClose }) {
       const y = Math.round(pt.clientY != null ? pt.clientY : -1);
       const under = x >= 0 && y >= 0 ? document.elementFromPoint(x, y) : null;
       const line = `${e.type} · cible=${describe(e.target)}` + (x >= 0 ? ` · (${x},${y}) → ${describe(under)}` : "");
-      setLog((l) => [line, ...l].slice(0, 10));
+      setLog((l) => [line, ...l].slice(0, 12));
     };
+    // Listening on the document, not the panel: a tap that lands somewhere
+    // unexpected has to show up too, and one scoped to the panel would miss it.
     const events = ["touchstart", "pointerdown", "mousedown", "focusin", "click"];
-    events.forEach((ev) => el.addEventListener(ev, onEvent, true));
-    return () => events.forEach((ev) => el.removeEventListener(ev, onEvent, true));
+    events.forEach((ev) => document.addEventListener(ev, onEvent, true));
+    return () => events.forEach((ev) => document.removeEventListener(ev, onEvent, true));
   }, []);
 
   function probe() {
@@ -220,14 +223,30 @@ export default function HabitForm({ habit, onSave, onClose }) {
           style={{ ...inputStyle, minHeight: 44 }}
         />
 
-        {/* TEMPORARY diagnostic block — remove once the tap problem is solved. */}
+        {/* TEMPORARY. Three probes that differ one variable at a time.
+            A sits where the real field sits, with the minimal markup that is
+            known to work; B is the same markup lower down; C carries the real
+            field's exact classes and styles. Whichever of position or markup
+            predicts failure is the cause. */}
+        <input
+          aria-label="Témoin A"
+          placeholder="Témoin A — juste sous le vrai champ"
+          style={{ border: "1px solid #999", padding: 6, width: "100%", marginTop: 8 }}
+        />
+
         <div className="mt-4 rounded-xl p-3" style={{ background: "#FFF9E6", border: "1px solid #E0C97A" }}>
           <p className="text-xs font-semibold mb-2">Diagnostic (temporaire)</p>
 
-          <p className="text-xs mb-1" style={{ color: BASE.muted }}>
-            Champ témoin, sans aucune mise en forme :
-          </p>
-          <input aria-label="Champ témoin" placeholder="tape ici" style={{ border: "1px solid #999", padding: 6, width: "100%" }} />
+          <input aria-label="Témoin B" placeholder="Témoin B — markup minimal" style={{ border: "1px solid #999", padding: 6, width: "100%" }} />
+
+          <input
+            aria-label="Témoin C"
+            value={probeText}
+            onChange={(e) => setProbeText(e.target.value)}
+            placeholder="Témoin C — style du vrai champ"
+            className="w-full rounded-xl px-3 outline-none"
+            style={{ ...inputStyle, minHeight: 44, marginTop: 8 }}
+          />
 
           <button
             onClick={probe}

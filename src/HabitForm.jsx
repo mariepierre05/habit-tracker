@@ -152,14 +152,38 @@ export default function HabitForm({ habit, onSave, onClose }) {
     setLog(lines);
   }
 
-  // If the mismatch is a scroll desynchronisation, nudging the page by a pixel
-  // and back forces iOS to reconcile the two, and every field starts answering
-  // again. That makes it a test as much as a workaround.
-  function resync() {
-    const y = window.scrollY;
-    window.scrollTo(0, y + 1);
-    window.scrollTo(0, y);
-    setLog((l) => ["→ resynchronisation demandée, réessaie de taper dans un champ", ...l].slice(0, 12));
+  // The field works in Safari and fails in the installed app, while a text
+  // field in the reminder overlay works in both. What separates them is the
+  // page itself: these are the global rules applied to the document — and only
+  // to the document — plus viewport-fit, which is what makes the safe-area
+  // insets non-zero in standalone and zero in Safari. Each button lifts one of
+  // them at runtime so all four can be tested in a single deploy.
+  function lift(which) {
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById("root");
+    const done = [];
+    if (which === "overscroll" || which === "all") {
+      html.style.overscrollBehaviorY = "auto";
+      done.push("overscroll-behavior levé");
+    }
+    if (which === "safearea" || which === "all") {
+      body.style.paddingTop = "0px";
+      body.style.paddingBottom = "0px";
+      done.push("marges safe-area retirées");
+    }
+    if (which === "height" || which === "all") {
+      html.style.height = "auto";
+      body.style.height = "auto";
+      if (root) root.style.height = "auto";
+      done.push("height:100% retiré");
+    }
+    if (which === "viewport" || which === "all") {
+      const meta = document.querySelector('meta[name="viewport"]');
+      if (meta) meta.setAttribute("content", "width=device-width, initial-scale=1.0");
+      done.push("viewport-fit=cover retiré");
+    }
+    setLog([`✓ ${done.join(" · ")}`, "→ essaie maintenant de taper dans le Témoin B ci-dessus"]);
   }
 
   function toggleDay(d) {
@@ -253,20 +277,39 @@ export default function HabitForm({ habit, onSave, onClose }) {
             style={{ ...inputStyle, minHeight: 44, marginTop: 8 }}
           />
 
-          <div className="flex gap-2 mt-3">
+          <p className="text-xs mt-3 mb-2">
+            Appuie sur un bouton, puis réessaie de taper dans le Témoin B. Celui qui
+            débloque la saisie désigne le coupable.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              ["overscroll", "1 · overscroll"],
+              ["safearea", "2 · safe-area"],
+              ["height", "3 · height 100%"],
+              ["viewport", "4 · viewport-fit"],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => lift(key)}
+                className="rounded-lg text-xs font-medium"
+                style={{ background: "#E0C97A", color: BASE.ink, minHeight: 44 }}
+              >
+                {label}
+              </button>
+            ))}
             <button
-              onClick={probe}
-              className="flex-1 rounded-lg text-xs font-medium"
-              style={{ background: "#E0C97A", color: BASE.ink, minHeight: 44 }}
+              onClick={() => lift("all")}
+              className="rounded-lg text-xs font-medium"
+              style={{ background: "#6E9463", color: BASE.paper, minHeight: 44 }}
             >
-              Analyser
+              5 · tout lever
             </button>
             <button
-              onClick={resync}
-              className="flex-1 rounded-lg text-xs font-medium"
+              onClick={probe}
+              className="rounded-lg text-xs font-medium"
               style={{ background: "#9BA98D", color: BASE.paper, minHeight: 44 }}
             >
-              Resynchroniser
+              Analyser
             </button>
           </div>
 

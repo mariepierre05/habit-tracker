@@ -203,15 +203,23 @@ export default function HabitForm({ habit, onSave, onClose }) {
           </button>
         </div>
 
-        <Label>Nom</Label>
-        <input
-          value={form.name}
-          onChange={(e) => set({ name: e.target.value })}
-          placeholder="Ex : Lire 10 pages"
-          aria-label="Nom de l'habitude"
-          className="w-full rounded-xl px-3 outline-none"
-          style={{ ...inputStyle, minHeight: 44 }}
-        />
+        {/* Wrapped in a label on purpose. The reminder sheet's time field is the
+            only input in the app known to work on the reporter's iPhone, and it
+            is also the only one inside a <label> — which forwards activation to
+            the control even when a direct tap on it does not take. */}
+        <label className="block mt-4">
+          <span className="block text-xs uppercase tracking-widest mb-2" style={{ color: BASE.muted, fontFamily: "'IBM Plex Mono', monospace" }}>
+            Nom
+          </span>
+          <input
+            value={form.name}
+            onChange={(e) => set({ name: e.target.value })}
+            placeholder="Ex : Lire 10 pages"
+            aria-label="Nom de l'habitude"
+            className="w-full rounded-xl px-3 outline-none"
+            style={{ ...inputStyle, minHeight: 44 }}
+          />
+        </label>
 
         {/* TEMPORARY. Three probes that differ one variable at a time.
             A sits where the real field sits, with the minimal markup that is
@@ -228,6 +236,13 @@ export default function HabitForm({ habit, onSave, onClose }) {
           <p className="text-xs font-semibold mb-2">Diagnostic (temporaire)</p>
 
           <input aria-label="Témoin B" placeholder="Témoin B — markup minimal" style={{ border: "1px solid #999", padding: 6, width: "100%" }} />
+
+          {/* The decisive one: same minimal markup as B, but inside a <label>,
+              exactly like the reminder field that works. */}
+          <label style={{ display: "block", marginTop: 8, border: "2px solid #6E9463", padding: 6, borderRadius: 8 }}>
+            <span style={{ display: "block", fontSize: 12, marginBottom: 4 }}>Témoin D — dans un label (touche ce texte aussi)</span>
+            <input aria-label="Témoin D" placeholder="Témoin D" style={{ border: "1px solid #999", padding: 6, width: "100%" }} />
+          </label>
 
           <input
             aria-label="Témoin C"

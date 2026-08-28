@@ -121,6 +121,54 @@ export default function HabitForm({ habit, onSave, onClose }) {
     panelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
+  // TEMPORARY. The name field can't be tapped on one reporter's iPhone while
+  // the time field in the reminder sheet works, which rules out the theories
+  // tried so far. This records what the device actually delivers on a tap —
+  // which element is hit, what sits at those coordinates, whether focus lands.
+  // Remove once the cause is known.
+  const [log, setLog] = useState([]);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const describe = (n) => {
+      if (!n || !n.tagName) return String(n);
+      const label = n.getAttribute && n.getAttribute("aria-label");
+      const cls = typeof n.className === "string" && n.className ? "." + n.className.split(" ").slice(0, 2).join(".") : "";
+      return `${n.tagName.toLowerCase()}${label ? `[${label}]` : ""}${cls}`;
+    };
+    const onEvent = (e) => {
+      const pt = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+      const x = Math.round(pt.clientX != null ? pt.clientX : -1);
+      const y = Math.round(pt.clientY != null ? pt.clientY : -1);
+      const under = x >= 0 && y >= 0 ? document.elementFromPoint(x, y) : null;
+      const line = `${e.type} · cible=${describe(e.target)}` + (x >= 0 ? ` · (${x},${y}) → ${describe(under)}` : "");
+      setLog((l) => [line, ...l].slice(0, 10));
+    };
+    const events = ["touchstart", "pointerdown", "mousedown", "focusin", "click"];
+    events.forEach((ev) => el.addEventListener(ev, onEvent, true));
+    return () => events.forEach((ev) => el.removeEventListener(ev, onEvent, true));
+  }, []);
+
+  function probe() {
+    const input = panelRef.current?.querySelector('input[aria-label="Nom de l\'habitude"]');
+    if (!input) return;
+    const r = input.getBoundingClientRect();
+    const cx = Math.round(r.left + r.width / 2);
+    const cy = Math.round(r.top + r.height / 2);
+    const under = document.elementFromPoint(cx, cy);
+    const cs = getComputedStyle(input);
+    input.focus();
+    const lines = [
+      `champ: ${Math.round(r.width)}×${Math.round(r.height)} à (${Math.round(r.left)},${Math.round(r.top)})`,
+      `au centre du champ: ${under && under.tagName ? under.tagName.toLowerCase() + (under.getAttribute("aria-label") ? "[" + under.getAttribute("aria-label") + "]" : "") : String(under)}`,
+      `pointer-events=${cs.pointerEvents} user-select=${cs.webkitUserSelect || cs.userSelect} touch-action=${cs.touchAction}`,
+      `readOnly=${input.readOnly} disabled=${input.disabled} opacity=${cs.opacity}`,
+      `focus programmé → ${document.activeElement === input ? "OK" : "REFUSÉ"}`,
+      `viewport ${window.innerWidth}×${window.innerHeight}, visual ${window.visualViewport ? Math.round(window.visualViewport.height) : "n/a"}`,
+    ];
+    setLog(lines);
+  }
+
   function toggleDay(d) {
     set({ freqDays: form.freqDays.includes(d) ? form.freqDays.filter((x) => x !== d) : [...form.freqDays, d] });
   }
@@ -171,6 +219,28 @@ export default function HabitForm({ habit, onSave, onClose }) {
           className="w-full rounded-xl px-3 outline-none"
           style={{ ...inputStyle, minHeight: 44 }}
         />
+
+        {/* TEMPORARY diagnostic block — remove once the tap problem is solved. */}
+        <div className="mt-4 rounded-xl p-3" style={{ background: "#FFF9E6", border: "1px solid #E0C97A" }}>
+          <p className="text-xs font-semibold mb-2">Diagnostic (temporaire)</p>
+
+          <p className="text-xs mb-1" style={{ color: BASE.muted }}>
+            Champ témoin, sans aucune mise en forme :
+          </p>
+          <input aria-label="Champ témoin" placeholder="tape ici" style={{ border: "1px solid #999", padding: 6, width: "100%" }} />
+
+          <button
+            onClick={probe}
+            className="w-full mt-3 rounded-lg text-xs font-medium"
+            style={{ background: "#E0C97A", color: BASE.ink, minHeight: 44 }}
+          >
+            Analyser le champ « Nom »
+          </button>
+
+          <pre className="mt-2 text-[10px] leading-snug whitespace-pre-wrap break-words" style={{ color: BASE.ink, maxHeight: 220, overflowY: "auto" }}>
+            {log.length ? log.join("\n") : "Touche le champ « Nom », puis lis ici ce qui s'est passé."}
+          </pre>
+        </div>
 
         <Label>Type</Label>
         <Segmented options={TYPES} value={form.type} onChange={(type) => set({ type })} disabled={editing} />

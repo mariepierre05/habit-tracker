@@ -116,9 +116,23 @@ export default function HabitForm({ habit, onSave, onClose }) {
   const panelRef = useRef(null);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
-  // Editing is triggered from a card that may be far above the form.
+  // Opening this form replaces a 44px button with several hundred pixels of
+  // content, usually while the user sits near the bottom of the page. Animating
+  // a scroll on top of that leaves iOS with its layout and painted scroll
+  // positions out of step: getBoundingClientRect then reports the field far
+  // from where it is drawn, and taps land wherever it *thinks* the field is.
+  // So: wait for the new height to be laid out, then jump instantly.
   useEffect(() => {
-    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    let raf2;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = panelRef.current;
+        if (!el) return;
+        const top = el.getBoundingClientRect().top + window.scrollY - 12;
+        window.scrollTo(0, Math.max(0, top));
+      });
+    });
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
   }, []);
 
   // TEMPORARY. The name field can't be tapped on one reporter's iPhone while
@@ -161,15 +175,28 @@ export default function HabitForm({ habit, onSave, onClose }) {
     const under = document.elementFromPoint(cx, cy);
     const cs = getComputedStyle(input);
     input.focus();
+    const se = document.scrollingElement || document.documentElement;
+    const vv = window.visualViewport;
     const lines = [
       `champ: ${Math.round(r.width)}×${Math.round(r.height)} à (${Math.round(r.left)},${Math.round(r.top)})`,
       `au centre du champ: ${under && under.tagName ? under.tagName.toLowerCase() + (under.getAttribute("aria-label") ? "[" + under.getAttribute("aria-label") + "]" : "") : String(under)}`,
-      `pointer-events=${cs.pointerEvents} user-select=${cs.webkitUserSelect || cs.userSelect} touch-action=${cs.touchAction}`,
-      `readOnly=${input.readOnly} disabled=${input.disabled} opacity=${cs.opacity}`,
       `focus programmé → ${document.activeElement === input ? "OK" : "REFUSÉ"}`,
-      `viewport ${window.innerWidth}×${window.innerHeight}, visual ${window.visualViewport ? Math.round(window.visualViewport.height) : "n/a"}`,
+      `scrollY=${Math.round(window.scrollY)} scrollTop=${Math.round(se.scrollTop)} ecart=${Math.round(window.scrollY - se.scrollTop)}`,
+      `visual offsetTop=${vv ? Math.round(vv.offsetTop) : "n/a"} pageTop=${vv ? Math.round(vv.pageTop) : "n/a"}`,
+      `viewport ${window.innerWidth}×${window.innerHeight}, visual ${vv ? Math.round(vv.height) : "n/a"}`,
+      `page: ${Math.round(se.scrollHeight)} px`,
     ];
     setLog(lines);
+  }
+
+  // If the mismatch is a scroll desynchronisation, nudging the page by a pixel
+  // and back forces iOS to reconcile the two, and every field starts answering
+  // again. That makes it a test as much as a workaround.
+  function resync() {
+    const y = window.scrollY;
+    window.scrollTo(0, y + 1);
+    window.scrollTo(0, y);
+    setLog((l) => ["→ resynchronisation demandée, réessaie de taper dans un champ", ...l].slice(0, 12));
   }
 
   function toggleDay(d) {
@@ -248,13 +275,22 @@ export default function HabitForm({ habit, onSave, onClose }) {
             style={{ ...inputStyle, minHeight: 44, marginTop: 8 }}
           />
 
-          <button
-            onClick={probe}
-            className="w-full mt-3 rounded-lg text-xs font-medium"
-            style={{ background: "#E0C97A", color: BASE.ink, minHeight: 44 }}
-          >
-            Analyser le champ « Nom »
-          </button>
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={probe}
+              className="flex-1 rounded-lg text-xs font-medium"
+              style={{ background: "#E0C97A", color: BASE.ink, minHeight: 44 }}
+            >
+              Analyser
+            </button>
+            <button
+              onClick={resync}
+              className="flex-1 rounded-lg text-xs font-medium"
+              style={{ background: "#9BA98D", color: BASE.paper, minHeight: 44 }}
+            >
+              Resynchroniser
+            </button>
+          </div>
 
           <pre className="mt-2 text-[10px] leading-snug whitespace-pre-wrap break-words" style={{ color: BASE.ink, maxHeight: 220, overflowY: "auto" }}>
             {log.length ? log.join("\n") : "Touche le champ « Nom », puis lis ici ce qui s'est passé."}

@@ -6,11 +6,24 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   base: '/habit-tracker/',
+  // Stamped into the build so the running app can say which one it is. A whole
+  // afternoon was spent testing fixes against a version that had never arrived.
+  define: {
+    __BUILD_ID__: JSON.stringify(
+      new Date().toLocaleString('fr-FR', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+        timeZone: 'Europe/Paris',
+      })
+    ),
+  },
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Registered by hand in main.jsx instead, so the app can actively ask
+      // whether a new build exists rather than waiting to be told.
+      injectRegister: null,
       includeAssets: ['apple-touch-icon.png', 'favicon-32.png'],
       manifest: {
         name: 'Habit Tracker',

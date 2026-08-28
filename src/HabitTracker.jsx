@@ -877,6 +877,12 @@ export default function HabitTracker() {
               <Shield size={13} /> Mes données
             </button>
           </div>
+
+          {/* Which build is actually running — the thing whose absence turned a
+              caching problem into an afternoon of chasing a phantom bug. */}
+          <p className="text-center text-xs mt-2" style={{ color: BASE.line, fontFamily: "'IBM Plex Mono', monospace" }}>
+            version {__BUILD_ID__}
+          </p>
         </div>
       </div>
 

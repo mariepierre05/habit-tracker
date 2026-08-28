@@ -54,6 +54,22 @@ export default function ReminderSheet({ onClose }) {
           />
         </label>
 
+        {/* TEMPORARY. The time field here is the only input the reporter can
+            use, but a time field opens a picker, not a keyboard — so it has
+            never shown that a text keyboard can open at all in their installed
+            app. This one does, in the exact context that works. Remove once
+            answered. */}
+        <label className="block mb-3 rounded-2xl p-3" style={{ background: "#FFF9E6", border: "1px solid #E0C97A" }}>
+          <span className="block text-xs mb-2">Test : champ texte, ici où l'heure fonctionne</span>
+          <input
+            type="text"
+            placeholder="tape ici"
+            aria-label="Test clavier texte"
+            className="w-full rounded-xl px-3 outline-none"
+            style={{ background: BASE.paper, border: `1px solid ${BASE.line}`, color: BASE.ink, minHeight: 44 }}
+          />
+        </label>
+
         <button
           onClick={add}
           className="w-full rounded-2xl mb-3 text-sm font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"

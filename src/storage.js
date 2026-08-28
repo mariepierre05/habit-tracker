@@ -9,6 +9,7 @@ const KEYS = {
   habits: "habits",
   entries: "entries",
   lastBackup: "lastBackup",
+  localModifiedAt: "localModifiedAt",
 };
 
 const BACKUP_FORMAT = 1;
@@ -42,8 +43,31 @@ export async function loadHabits() {
   }
 }
 
+// Every local write is stamped, so a later sync can tell whether this device or
+// the server holds the more recent version without having to diff anything.
+function touch() {
+  try {
+    write(KEYS.localModifiedAt, new Date().toISOString());
+  } catch (_) {
+    // The stamp is an optimisation; losing it must not fail the actual save.
+  }
+}
+
+export function getLocalModifiedAt() {
+  return read(KEYS.localModifiedAt);
+}
+
+export function setLocalModifiedAt(iso) {
+  try {
+    write(KEYS.localModifiedAt, iso);
+  } catch (_) {
+    // As above.
+  }
+}
+
 export async function saveHabits(habits) {
   write(KEYS.habits, JSON.stringify(habits));
+  touch();
 }
 
 export async function loadEntries() {
@@ -59,6 +83,7 @@ export async function loadEntries() {
 
 export async function saveEntries(entries) {
   write(KEYS.entries, JSON.stringify(entries));
+  touch();
 }
 
 export async function getLastBackup() {

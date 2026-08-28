@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Check, Plus, Trash2, Flame, X, Minus, Download, Upload, Shield, CalendarClock, RotateCcw, Pencil, Moon, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Bell } from "lucide-react";
-import { loadHabits, saveHabits as persistHabits, loadEntries, saveEntries as persistEntries, exportBackup, parseBackup, restoreBackup, getLastBackup } from "./storage";
+import { loadHabits, saveHabits as persistHabits, loadEntries, saveEntries as persistEntries, exportBackup, parseBackup, restoreBackup, getLastBackup, getLocalModifiedAt } from "./storage";
+import { getSession, onAuthChange, reconcile, pushState, drainInbox } from "./sync";
+import SyncPanel from "./SyncPanel";
 import { BASE, PALETTE, colorFor, iconFor } from "./theme";
 import { DOW, toISO, lastNDates, dayOfYear, fromISO } from "./dates";
 import {
@@ -240,7 +242,7 @@ function formatDateTime(iso) {
 
 // Backup and restore. Restoring replaces everything, so the file is parsed and
 // summarised first and only written once the user confirms what's in it.
-function DataSheet({ onClose, onRestore }) {
+function DataSheet({ onClose, onRestore, session, syncedAt, onSignedIn, onSignedOut }) {
   const [pending, setPending] = useState(null);
   const [status, setStatus] = useState("");
   const [problem, setProblem] = useState("");
@@ -302,9 +304,15 @@ function DataSheet({ onClose, onRestore }) {
 
         {!pending ? (
           <>
-            <p className="text-sm mb-5" style={{ color: BASE.muted }}>
-              Ton historique est enregistré sur cet appareil uniquement. Fais une sauvegarde de temps en temps
-              pour pouvoir le retrouver sur un nouveau téléphone.
+            <SyncPanel
+              session={session}
+              syncedAt={syncedAt}
+              onSignedIn={onSignedIn}
+              onSignedOut={onSignedOut}
+            />
+
+            <p className="text-xs uppercase tracking-widest mt-5 mb-2" style={{ color: BASE.muted, fontFamily: "'IBM Plex Mono', monospace" }}>
+              Sauvegarde manuelle
             </p>
 
             <div className="rounded-2xl p-4 mb-3 flex items-start gap-3" style={{ background: PALETTE[1].tint, border: `1px solid ${PALETTE[1].soft}` }}>
@@ -388,6 +396,18 @@ export default function HabitTracker() {
   // The weekly buds stay the default view; the month is opened on demand.
   const [showMonth, setShowMonth] = useState(false);
   const [monthCursor, setMonthCursor] = useState(null);
+  const [session, setSession] = useState(null);
+  const [syncedAt, setSyncedAt] = useState(null);
+  // Holds the latest state so the debounced push always sends what is current,
+  // not whatever it happened to capture when the timer was armed.
+  const pendingPush = useRef(null);
+  const pushTimer = useRef(null);
+  // A save touches one of the two and has to upload both; mirroring them keeps
+  // the save callbacks from capturing a stale copy of the other.
+  const habitsRef = useRef(null);
+  const entriesRef = useRef(null);
+  habitsRef.current = habits;
+  entriesRef.current = entries;
 
   useEffect(() => {
     if (!error) return;
@@ -443,25 +463,83 @@ export default function HabitTracker() {
     })();
   }, []);
 
+  // The local write is what counts; the upload is best-effort and batched, so a
+  // burst of taps costs one request and a failed one never blocks the app.
+  const schedulePush = useCallback((habitsNext, entriesNext) => {
+    pendingPush.current = { habits: habitsNext, entries: entriesNext };
+    clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(async () => {
+      const payload = pendingPush.current;
+      if (!payload) return;
+      try {
+        const at = await pushState(payload.habits, payload.entries);
+        if (at) setSyncedAt(new Date(at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }));
+      } catch (_) {
+        // Offline or the server refused: the device already holds the change and
+        // the next reconcile will carry it up.
+      }
+    }, 1500);
+  }, []);
+
+  // Reconciles once the local state is loaded, and again whenever the session
+  // changes or the app returns to the foreground — which on an installed PWA is
+  // the only moment another device's changes can arrive.
+  const syncNow = useCallback(async () => {
+    if (!habitsRef.current) return;
+    try {
+      const result = await reconcile(habitsRef.current, entriesRef.current, getLocalModifiedAt());
+      if (result.action === "pulled") {
+        setHabits(result.habits);
+        setEntries(result.entries);
+        await persistHabits(result.habits);
+        await persistEntries(result.entries);
+      }
+      const merged = await drainInbox(result.action === "pulled" ? result.entries : entriesRef.current);
+      if (merged) {
+        setEntries(merged);
+        await persistEntries(merged);
+        await pushState(habitsRef.current, merged);
+      }
+      setSyncedAt(new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }));
+    } catch (_) {
+      // Offline, or the session expired. The device keeps working on its own.
+    }
+  }, []);
+
+  useEffect(() => {
+    getSession().then(setSession);
+    return onAuthChange(setSession);
+  }, []);
+
+  useEffect(() => {
+    if (!session || !ready) return;
+    syncNow();
+    const onVisible = () => { if (!document.hidden) syncNow(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [session, ready, syncNow]);
+
   const saveHabits = useCallback(async (next) => {
     setHabits(next);
     try {
       await persistHabits(next);
       setError("");
+      schedulePush(next, entriesRef.current);
     } catch (_) {
       setError("Impossible d'enregistrer. Réessaie.");
     }
-  }, []);
+  }, [schedulePush]);
 
   const saveEntries = useCallback(async (next) => {
     setEntries(next);
     try {
       await persistEntries(next);
       setError("");
+      schedulePush(habitsRef.current, next);
     } catch (_) {
       setError("Impossible d'enregistrer. Réessaie.");
     }
-  }, []);
+  }, [schedulePush]);
 
   if (!ready) {
     return (
@@ -906,9 +984,14 @@ export default function HabitTracker() {
       {showData && (
         <DataSheet
           onClose={() => setShowData(false)}
+          session={session}
+          syncedAt={syncedAt}
+          onSignedIn={syncNow}
+          onSignedOut={() => setSyncedAt(null)}
           onRestore={(restored) => {
             setHabits(restored.habits);
             setEntries(restored.entries);
+            schedulePush(restored.habits, restored.entries);
             setShowData(false);
           }}
         />

@@ -116,55 +116,18 @@ export default function HabitForm({ habit, onSave, onClose }) {
   const panelRef = useRef(null);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
 
-  // Opening this form replaces a 44px button with several hundred pixels of
-  // content, usually while the user sits near the bottom of the page. Animating
-  // a scroll on top of that leaves iOS with its layout and painted scroll
-  // positions out of step: getBoundingClientRect then reports the field far
-  // from where it is drawn, and taps land wherever it *thinks* the field is.
-  // So: wait for the new height to be laid out, then jump instantly.
+  // The form is its own screen now, so there is nothing above it to scroll past.
   useEffect(() => {
-    let raf2;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const el = panelRef.current;
-        if (!el) return;
-        const top = el.getBoundingClientRect().top + window.scrollY - 12;
-        window.scrollTo(0, Math.max(0, top));
-      });
-    });
-    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
+    window.scrollTo(0, 0);
   }, []);
 
-  // TEMPORARY. The name field can't be tapped on one reporter's iPhone while
-  // the time field in the reminder sheet works, which rules out the theories
-  // tried so far. This records what the device actually delivers on a tap —
-  // which element is hit, what sits at those coordinates, whether focus lands.
-  // Remove once the cause is known.
+  // TEMPORARY, and deliberately passive. The previous version listened for
+  // every touch and re-rendered to log it; on the device the tap sequence then
+  // died between pointerdown and click, which is what a re-render mid-gesture
+  // does. Measuring on demand only, so the instrument stops disturbing what it
+  // measures. Remove once the tap problem is settled.
   const [log, setLog] = useState([]);
   const [probeText, setProbeText] = useState("");
-  useEffect(() => {
-    const el = panelRef.current;
-    if (!el) return;
-    const describe = (n) => {
-      if (!n || !n.tagName) return String(n);
-      const label = n.getAttribute && n.getAttribute("aria-label");
-      const cls = typeof n.className === "string" && n.className ? "." + n.className.split(" ").slice(0, 2).join(".") : "";
-      return `${n.tagName.toLowerCase()}${label ? `[${label}]` : ""}${cls}`;
-    };
-    const onEvent = (e) => {
-      const pt = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
-      const x = Math.round(pt.clientX != null ? pt.clientX : -1);
-      const y = Math.round(pt.clientY != null ? pt.clientY : -1);
-      const under = x >= 0 && y >= 0 ? document.elementFromPoint(x, y) : null;
-      const line = `${e.type} · cible=${describe(e.target)}` + (x >= 0 ? ` · (${x},${y}) → ${describe(under)}` : "");
-      setLog((l) => [line, ...l].slice(0, 12));
-    };
-    // Listening on the document, not the panel: a tap that lands somewhere
-    // unexpected has to show up too, and one scoped to the panel would miss it.
-    const events = ["touchstart", "pointerdown", "mousedown", "focusin", "click"];
-    events.forEach((ev) => document.addEventListener(ev, onEvent, true));
-    return () => events.forEach((ev) => document.removeEventListener(ev, onEvent, true));
-  }, []);
 
   function probe() {
     const input = panelRef.current?.querySelector('input[aria-label="Nom de l\'habitude"]');

@@ -542,6 +542,21 @@ export default function HabitTracker() {
     saveHabits(next);
   }
 
+  // The form takes over the screen instead of sitting inside the list. Every
+  // arrangement tried before it — a fixed overlay, then a panel appended to a
+  // long scrolled page — left the fields untappable on iOS. This one has
+  // nothing layered over it, nothing scrolled behind it, and no sudden change
+  // of page height under the finger.
+  if (formFor) {
+    return (
+      <div style={{ background: BASE.paper, color: BASE.ink, fontFamily: "'Inter', sans-serif" }} className="min-h-full w-full">
+        <div className="max-w-md mx-auto px-5 py-6">
+          <HabitForm habit={formFor.habit} onSave={saveHabit} onClose={() => setFormFor(null)} />
+        </div>
+      </div>
+    );
+  }
+
   const dateLabel = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   const [feteName, feteTitle] = feteDuJour(new Date());
   const feteLabel = feteTitle ? `Fête : ${feteTitle} ${feteName}` : feteName;
@@ -838,17 +853,13 @@ export default function HabitTracker() {
 
           {error && <p className="text-sm mb-4" style={{ color: BASE.danger }}>{error}</p>}
 
-          {formFor ? (
-            <HabitForm habit={formFor.habit} onSave={saveHabit} onClose={() => setFormFor(null)} />
-          ) : (
-            <button
-              onClick={() => setFormFor({ habit: null })}
-              className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 text-sm font-medium active:scale-[0.98] transition-transform"
-              style={{ border: `1.5px dashed ${BASE.stem}`, color: PALETTE[1].deep, minHeight: 44 }}
-            >
-              <Plus size={16} /> Ajouter une habitude
-            </button>
-          )}
+          <button
+            onClick={() => setFormFor({ habit: null })}
+            className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 text-sm font-medium active:scale-[0.98] transition-transform"
+            style={{ border: `1.5px dashed ${BASE.stem}`, color: PALETTE[1].deep, minHeight: 44 }}
+          >
+            <Plus size={16} /> Ajouter une habitude
+          </button>
 
           <div className="flex gap-2 mt-8">
             <button
